@@ -19,6 +19,8 @@ ditto "$PRODUCTS/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 sed -e "s|__VERSION__|${MARKETING_VERSION}|" \
     -e "s|__BUILD__|${BUILD_NUMBER}|" \
     -e "s|__FEED_URL__|${FEED_URL}|" \
+    -e "s|__SUPABASE_URL__|${SUPABASE_URL:-}|" \
+    -e "s|__SUPABASE_KEY__|${SUPABASE_KEY:-}|" \
     Resources/Info.plist > "$APP/Contents/Info.plist"
 
 # Let the executable find Sparkle inside the bundle.

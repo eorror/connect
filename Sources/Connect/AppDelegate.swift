@@ -6,13 +6,20 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
-    let store = NotesStore()
+    let auth: AuthManager
+    let store: NotesStore
     let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     private var statusItem: NSStatusItem!
     private var window: NSWindow?
     private let popup = SidePopupController()
     private var cancellables = Set<AnyCancellable>()
+
+    override init() {
+        auth = AuthManager()
+        store = NotesStore(auth: auth)
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -69,12 +76,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(item(unread > 0 ? "Open Notes (\(unread) new)" : "Open Notes", #selector(openNotes), "o"))
         menu.addItem(item("New Note…", #selector(newNote), "n"))
         menu.addItem(.separator())
-        if let backend = store.backend {
-            let copy = item("Copy Pairing Code", #selector(copyPairingCode), "")
-            copy.representedObject = backend.pairingCode
-            menu.addItem(copy)
+        if let s = auth.session {
+            let who = NSMenuItem(title: "Signed in as \(s.email)", action: nil, keyEquivalent: "")
+            who.isEnabled = false
+            menu.addItem(who)
         }
-        menu.addItem(item("Name & Connection…", #selector(openSetup), ""))
+        menu.addItem(item("Account…", #selector(openSetup), ""))
         let login = item("Open at Login", #selector(toggleLogin), "")
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
@@ -108,12 +115,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func openSetup() {
         store.showSetup = true
         showWindow()
-    }
-
-    @objc private func copyPairingCode(_ sender: NSMenuItem) {
-        guard let code = sender.representedObject as? String else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(code, forType: .string)
     }
 
     @objc private func toggleLogin() {

@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 struct RootView: View {
@@ -19,69 +20,111 @@ struct RootView: View {
 
 struct SetupView: View {
     @EnvironmentObject var store: NotesStore
-    @State private var name = UserDefaults.standard.string(forKey: "myName") ?? ""
-    @State private var pairingCode = ""
+    @State private var partner = UserDefaults.standard.string(forKey: "partnerEmail") ?? ""
     @State private var url = Backend.load()?.url ?? ""
     @State private var key = Backend.load()?.key ?? ""
-    @State private var showManual = Backend.load() != nil
+    @State private var showServer = Backend.builtIn == nil
     @State private var error: String?
-    @State private var checking = false
+    @State private var busy = false
+
+    private var partnerValid: Bool {
+        let p = partner.trimmingCharacters(in: .whitespaces).lowercased()
+        return p.contains("@") && p.contains(".") && p != store.myEmail
+    }
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 16) {
             Image(systemName: "heart.text.square.fill")
-                .font(.system(size: 48))
+                .font(.system(size: 44))
                 .foregroundStyle(.pink)
             Text("Set up Connect").font(.title2.bold())
 
             Form {
-                TextField("Your name", text: $name, prompt: Text("What should your notes say they're from?"))
-                TextField("Pairing code", text: $pairingCode, prompt: Text("Paste the code you were sent"))
-                DisclosureGroup("Server URL and key instead", isExpanded: $showManual) {
-                    TextField("Supabase URL", text: $url, prompt: Text("https://xxxx.supabase.co"))
-                    TextField("Key", text: $key, prompt: Text("anon / publishable key"))
+                if showServer {
+                    Section("Server") {
+                        TextField("Supabase URL", text: $url, prompt: Text("https://xxxx.supabase.co"))
+                        TextField("Key", text: $key, prompt: Text("publishable / anon key"))
+                    }
+                }
+
+                Section("Your account") {
+                    if let s = store.auth.session {
+                        HStack {
+                            Image(systemName: "person.crop.circle.fill").font(.title).foregroundStyle(.secondary)
+                            VStack(alignment: .leading) {
+                                Text(s.name).font(.headline)
+                                Text(s.email).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Sign Out") { store.auth.signOut() }
+                        }
+                    } else {
+                        Button { Task { await signIn() } } label: {
+                            Label(busy ? "Waiting for Google…" : "Sign in with Google", systemImage: "person.crop.circle.badge.checkmark")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .controlSize(.large)
+                        .disabled(busy)
+                    }
+                }
+
+                Section("Who are you sending notes to?") {
+                    TextField("Their Google email", text: $partner, prompt: Text("name@gmail.com"))
+                        .textContentType(.emailAddress)
                 }
             }
             .formStyle(.grouped)
             .frame(maxWidth: 460)
 
             if let error {
-                Text(error).foregroundStyle(.red).font(.callout).multilineTextAlignment(.center)
+                Text(error).foregroundStyle(.red).font(.callout)
+                    .multilineTextAlignment(.center).frame(maxWidth: 440)
             }
 
             HStack {
                 if store.isConfigured {
                     Button("Cancel") { store.showSetup = false }
                 }
-                Button(checking ? "Connecting…" : "Connect") { Task { await connect() } }
+                Button("Done") { finish() }
                     .buttonStyle(.borderedProminent)
+                    .tint(.pink)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(checking || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(!store.isSignedIn || !partnerValid)
             }
         }
         .padding(30)
     }
 
-    private func connect() async {
+    private func currentBackend() -> Backend? {
+        if showServer {
+            guard url.hasPrefix("http"), !key.isEmpty else { return nil }
+            return Backend(url: url, key: key)
+        }
+        return store.backend
+    }
+
+    private func signIn() async {
         error = nil
-        let backend: Backend
-        if !pairingCode.trimmingCharacters(in: .whitespaces).isEmpty {
-            guard let b = Backend(pairingCode: pairingCode) else { error = "That pairing code doesn't look right."; return }
-            backend = b
-        } else if !url.isEmpty, !key.isEmpty {
-            backend = Backend(url: url, key: key)
-        } else {
-            error = "Paste a pairing code, or enter the server URL and key."
+        guard let backend = currentBackend() else {
+            error = "Enter the Supabase URL and key first."
             return
         }
-        checking = true
-        defer { checking = false }
+        busy = true
+        defer { busy = false }
         do {
-            _ = try await NotesAPI(backend: backend).fetchNotes()
-            store.configure(name: name, backend: backend)
+            try await store.auth.signInWithGoogle(backend: backend)
+            if showServer { store.setBackend(backend) }
         } catch {
-            self.error = "Couldn't reach the notes server: \(error.localizedDescription)"
+            if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue,
+               (error as NSError).domain == ASWebAuthenticationSessionErrorDomain { return }
+            self.error = error.localizedDescription
         }
+    }
+
+    private func finish() {
+        if showServer, let b = currentBackend(), b != store.backend { store.setBackend(b) }
+        store.setPartner(partner)
+        store.showSetup = false
     }
 }
 
@@ -142,7 +185,7 @@ struct ThreadRow: View {
             Circle().fill(unread > 0 ? Color.pink : .clear).frame(width: 8, height: 8).padding(.top, 5)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
-                    Text(store.isMine(thread.root) ? "You" : thread.root.sender)
+                    Text(store.isMine(thread.root) ? "You" : thread.root.senderName)
                         .font(.headline)
                     Spacer()
                     Text(thread.last.createdAt, format: .relative(presentation: .named))
@@ -188,7 +231,7 @@ struct ThreadView: View {
             Divider()
             replyBar
         }
-        .navigationTitle(store.isMine(thread.root) ? "Your note" : "Note from \(thread.root.sender)")
+        .navigationTitle(store.isMine(thread.root) ? "Your note" : "Note from \(thread.root.senderName)")
     }
 
     private var lastMine: Note? { thread.all.last(where: { store.isMine($0) }) }
@@ -236,7 +279,7 @@ struct NoteBubble: View {
         HStack {
             if mine { Spacer(minLength: 60) }
             VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
-                Text("\(mine ? "You" : note.sender) · \(note.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                Text("\(mine ? "You" : note.senderName) · \(note.createdAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption).foregroundStyle(.secondary)
                 Text(note.body)
                     .font(isRoot ? .title3 : .body)
@@ -269,7 +312,7 @@ struct ComposeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(store.partnerName.map { "New note for \($0)" } ?? "New note")
+            Text("New note for \(store.partnerName)")
                 .font(.title2.bold())
             TextEditor(text: $draft)
                 .font(.title3)
@@ -313,7 +356,7 @@ struct PopupView: View {
                 .font(.system(size: 30))
                 .foregroundStyle(.pink)
             VStack(alignment: .leading, spacing: 3) {
-                Text(notes.count > 1 ? "\(notes.count) new notes from \(latest.sender)" : "New note from \(latest.sender)")
+                Text(notes.count > 1 ? "\(notes.count) new notes from \(latest.senderName)" : "New note from \(latest.senderName)")
                     .font(.headline)
                 Text(latest.body).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 Text("Click to open and reply").font(.caption2).foregroundStyle(.tertiary)

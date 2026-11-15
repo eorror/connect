@@ -15,6 +15,10 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>Made with love</string>
 
+    <!-- Notes server (Supabase). Filled from version.env; empty means "ask in setup". -->
+    <key>ConnectSupabaseURL</key><string>__SUPABASE_URL__</string>
+    <key>ConnectSupabaseKey</key><string>__SUPABASE_KEY__</string>
+
     <!-- Sparkle over-the-air updates -->
     <key>SUFeedURL</key><string>__FEED_URL__</string>
     <key>SUPublicEDKey</key><string>7iUtl971nX6itIe6a33WhNKCAFkeqaCnVM2yL8p+4Dg=</string>
