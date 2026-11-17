@@ -40,6 +40,7 @@ final class SidePanelController: NSObject, NSWindowDelegate {
 
     let state: PanelState
     private let store: NotesStore
+    private let games: GameCenter
     private let panel: KeyPanel
 
     /// Opened by hovering and not clicked yet, so it closes again when the mouse leaves.
@@ -56,8 +57,9 @@ final class SidePanelController: NSObject, NSWindowDelegate {
     }()
     private var dragStart: (mouseX: CGFloat, frameX: CGFloat)?
 
-    init(store: NotesStore, updater: SPUUpdater) {
+    init(store: NotesStore, games: GameCenter, updater: SPUUpdater) {
         self.store = store
+        self.games = games
         self.state = PanelState(updater: updater)
         panel = KeyPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 560),
                          styleMask: [.borderless, .nonactivatingPanel],
@@ -73,6 +75,7 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         panel.delegate = self
         let host = NSHostingView(rootView: PanelRoot()
             .environmentObject(store)
+            .environmentObject(games)
             .environmentObject(state))
         host.sizingOptions = []   // the controller decides the size; don't let SwiftUI push it bigger
         panel.contentView = host
@@ -93,6 +96,21 @@ final class SidePanelController: NSObject, NSWindowDelegate {
                 if target != self.panel.frame { self.slide(to: target, duration: 0.3) }
             }
             .store(in: &cancellables)
+        store.$showGames
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, self.mode == .open else { return }
+                DispatchQueue.main.async {
+                    let target = self.openFrame
+                    if target != self.panel.frame { self.slide(to: target, duration: 0.3) }
+                }
+            }
+            .store(in: &cancellables)
+        // A ping or my turn while the panel is shut: the tab changes to a hopping game pad.
+        games.onAttentionChange = { [weak self] in
+            guard let self, self.mode == .tab else { return }
+            DispatchQueue.main.async { self.resizeTab() }
+        }
         state.$fitHeight
             .removeDuplicates()
             .receive(on: RunLoop.main)
@@ -126,7 +144,8 @@ final class SidePanelController: NSObject, NSWindowDelegate {
     /// Slim handle normally; a bigger tab with her initial when something is unread.
     /// The frame is taller than what's drawn so the mouse only has to get close.
     private var tabSize: NSSize {
-        store.unreadIncoming.isEmpty ? NSSize(width: 84, height: 24) : NSSize(width: 60, height: 56)
+        store.unreadIncoming.isEmpty && !games.needsAttention
+            ? NSSize(width: 84, height: 24) : NSSize(width: 60, height: 56)
     }
 
     private var tabFrame: NSRect {
@@ -184,7 +203,13 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         self.pinned = pinned || self.pinned
         var emoteToPlay: Emote?
         if mode != .open, !store.showSettings {
-            if let unread = store.unreadIncoming.last {
+            if games.needsAttention || (store.showGames && games.phase != .idle) {
+                // A ping to answer or a game in progress comes first.
+                store.composing = false
+                store.selectedThreadID = nil
+                store.showGames = true
+            } else if let unread = store.unreadIncoming.last {
+                store.showGames = false
                 emoteToPlay = unread.emote
                 // A letter (not an emote) opens out of its envelope.
                 if unread.emote == nil { store.envelopeToOpen = unread.id }
@@ -229,6 +254,8 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         pinned = false
         store.showSettings = false
         store.selectedThreadID = nil
+        // Come back to a game in progress; otherwise reopen on letters.
+        if games.phase == .idle || games.phase == .partnerLeft { store.showGames = false }
         hoverOpenWork?.cancel()
         leaveWork?.cancel()
         let out = panel.frame.offsetBy(dx: 0, dy: 14)

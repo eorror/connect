@@ -38,19 +38,24 @@ struct PanelRoot: View {
 /// along the top.
 struct NoteTab: View {
     @EnvironmentObject var store: NotesStore
+    @EnvironmentObject var games: GameCenter
     @EnvironmentObject var panel: PanelState
     @State private var hovering = false
 
     var body: some View {
         let unread = store.unreadIncoming.count
-        let radius: CGFloat = unread > 0 ? 18 : 7
+        let radius: CGFloat = unread > 0 || games.needsAttention ? 18 : 7
         let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: radius,
                                            bottomTrailingRadius: radius, topTrailingRadius: 0, style: .continuous)
         ZStack(alignment: .top) {
             // Invisible but hoverable: the mouse only has to get close.
             Color.white.opacity(0.001)
             Group {
-                if unread > 0 {
+                if games.needsAttention {
+                    JumpingGamePad(invite: games.phase == .invited)
+                        .padding(.bottom, 9)
+                        .frame(width: 52, height: hovering ? 48 : 44, alignment: .bottom)
+                } else if unread > 0 {
                     JumpingEnvelope(count: unread,
                                     color: (store.unreadIncoming.last?.paper ?? .beige).envelope)
                         .padding(.bottom, 9)
@@ -79,7 +84,9 @@ struct NoteTab: View {
                 .onEnded { _ in panel.tabDragEnded() }
         )
         .onTapGesture { panel.open() }
-        .help(unread == 0 ? "Connect. Hover to open, drag to move"
+        .help(games.phase == .invited ? "\(store.partnerName) wants to play!"
+              : games.needsAttention ? "Your turn!"
+              : unread == 0 ? "Connect. Hover to open, drag to move"
               : unread == 1 ? "A letter from \(store.partnerName)" : "\(unread) letters from \(store.partnerName)")
     }
 }
@@ -88,17 +95,19 @@ struct NoteTab: View {
 
 struct PanelView: View {
     @EnvironmentObject var store: NotesStore
+    @EnvironmentObject var games: GameCenter
     @EnvironmentObject var panel: PanelState
 
     private var screen: Screen {
         if !store.isConfigured || store.showSetup { return .setup }
         if store.showSettings { return .settings }
+        if store.showGames { return .games }
         if let id = store.selectedThreadID, let t = store.threads.first(where: { $0.id == id }) { return .thread(t) }
         if store.composing { return .compose }
         return .list
     }
 
-    enum Screen { case setup, settings, list, compose, thread(NoteThread) }
+    enum Screen { case setup, settings, list, compose, thread(NoteThread), games }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -111,6 +120,7 @@ struct PanelView: View {
                 case .list: NotesList()
                 case .compose: LetterComposer()
                 case .thread(let t): ThreadView(thread: t).id(t.id)
+                case .games: GamesScreen()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -127,7 +137,7 @@ struct PanelView: View {
 
     private var canGoBack: Bool {
         switch screen {
-        case .settings, .thread: return true
+        case .settings, .thread, .games: return true
         default: return false
         }
     }
@@ -136,6 +146,8 @@ struct PanelView: View {
         HStack(spacing: 6) {
             if canGoBack {
                 IconButton("chevron.left", help: "Back") {
+                    if store.showSettings { store.showSettings = false; return }
+                    store.showGames = false
                     store.showSettings = false
                     store.composing = false
                     store.selectedThreadID = nil
@@ -162,6 +174,18 @@ struct PanelView: View {
                     }
                     .keyboardShortcut("n")
                 }
+                if !screen.isGames && !store.showSettings {
+                    IconButton("gamecontroller", help: "Play a game together") {
+                        store.composing = false
+                        store.selectedThreadID = nil
+                        store.showGames = true
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if games.needsAttention || games.phase == .playing {
+                            Circle().fill(Color(hex: 0xE5484D)).frame(width: 7, height: 7).offset(x: -1, y: 2)
+                        }
+                    }
+                }
                 if !store.showSettings {
                     IconButton("gearshape", help: "Settings") { store.showSettings = true }
                         .keyboardShortcut(",")
@@ -180,6 +204,7 @@ struct PanelView: View {
         case .list: return "Letters"
         case .compose: return "A letter for \(firstName(store.partnerName))"
         case .thread(let t): return store.isMine(t.root) ? "Your letter" : "From \(firstName(t.root.senderName))"
+        case .games: return games.phase == .playing ? (games.board?.kind.name ?? "Games") : "Games"
         }
     }
 }
@@ -187,6 +212,7 @@ struct PanelView: View {
 private extension PanelView.Screen {
     var isList: Bool { if case .list = self { return true } else { return false } }
     var isCompose: Bool { if case .compose = self { return true } else { return false } }
+    var isGames: Bool { if case .games = self { return true } else { return false } }
 }
 
 struct IconButton: View {

@@ -8,6 +8,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let auth: AuthManager
     let store: NotesStore
+    let games: GameCenter
     let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     private var statusItem: NSStatusItem!
@@ -18,13 +19,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     override init() {
         auth = AuthManager()
         store = NotesStore(auth: auth)
+        games = GameCenter(store: store)
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Theme.registerFonts()
         NSApp.setActivationPolicy(.accessory)
-        panel = SidePanelController(store: store, updater: updater.updater)
+        panel = SidePanelController(store: store, games: games, updater: updater.updater)
         panel.state.quit = { NSApp.terminate(nil) }
         panel.state.playEmote = { [weak self] e in
             guard let self else { return }
@@ -49,6 +51,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         store.start()
+        games.onInvite = { NSSound(named: "Glass")?.play() }
+        games.start()
+        // Debug: CONNECT_PREVIEW=invite or game-<tictactoe|connect4|memory|rps|dots> shows a game screen.
+        if let what = ProcessInfo.processInfo.environment["CONNECT_PREVIEW"], what == "invite" || what.hasPrefix("game-") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                self.games.preview(GameKind(rawValue: String(what.dropFirst(5))))
+                self.store.showGames = true
+                self.panel.open()
+            }
+        }
         // For checking the animation without sending anything: CONNECT_PLAY_EMOTE=flowers
         if let name = ProcessInfo.processInfo.environment["CONNECT_PLAY_EMOTE"], let e = Emote(rawValue: name) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.panel.open(); self.panel.state.playEmote(e) }
@@ -72,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         // Debug look-checks: CONNECT_PREVIEW=compose | letter | tab (tab and letter add a local fake letter)
-        if let what = ProcessInfo.processInfo.environment["CONNECT_PREVIEW"] {
+        if let what = ProcessInfo.processInfo.environment["CONNECT_PREVIEW"], ["compose", "letter", "tab"].contains(what) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                 if what != "compose" {
                     self.store.injectPreviewLetter(paper: Paper(rawValue: ProcessInfo.processInfo.environment["CONNECT_PAPER"] ?? "") ?? .beige)

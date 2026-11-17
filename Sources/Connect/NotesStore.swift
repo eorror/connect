@@ -15,6 +15,8 @@ final class NotesStore: ObservableObject {
     /// Panel screens: writing a fresh note, or the settings page.
     @Published var composing = false
     @Published var showSettings = false
+    /// Panel screen: games with your partner.
+    @Published var showGames = false
     @Published private(set) var backend: Backend? = Backend.load()
     @Published private(set) var partnerEmail: String = UserDefaults.standard.string(forKey: "partnerEmail") ?? ""
 
