@@ -5,14 +5,13 @@ import Sparkle
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let auth: AuthManager
     let store: NotesStore
     let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     private var statusItem: NSStatusItem!
-    private var window: NSWindow?
-    private let popup = SidePopupController()
+    private var panel: SidePanelController!
     private var cancellables = Set<AnyCancellable>()
 
     override init() {
@@ -24,31 +23,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func applicationDidFinishLaunching(_ notification: Notification) {
         Theme.registerFonts()
         NSApp.setActivationPolicy(.accessory)
+        panel = SidePanelController(store: store, updater: updater.updater)
+        panel.state.quit = { NSApp.terminate(nil) }
         setupStatusItem()
 
-        popup.onOpen = { [weak self] note in self?.openThread(note.threadID) }
-        store.onIncoming = { [weak self] notes in self?.popup.show(notes: notes) }
+        store.onIncoming = { [weak self] _ in self?.panel.showTab() }
         store.isViewingThread = { [weak self] id in
-            guard let self, let window = self.window else { return false }
-            return window.isVisible && NSApp.isActive && self.store.selectedThreadID == id
+            guard let self else { return false }
+            return self.panel.isOpen && self.store.selectedThreadID == id
         }
         store.$notes
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateBadge() }
             .store(in: &cancellables)
 
-        // Start at login so notes always arrive (asked once; can be turned off from the menu).
+        // Start at login so notes always arrive (can be turned off in Settings).
         if !UserDefaults.standard.bool(forKey: "askedLoginItem") {
             UserDefaults.standard.set(true, forKey: "askedLoginItem")
             try? SMAppService.mainApp.register()
         }
 
         store.start()
-        if !store.isConfigured { showWindow() }
+        if !store.isConfigured { panel.open() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showWindow()
+        panel.open()
         return true
     }
 
@@ -58,9 +58,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "heart.text.square", accessibilityDescription: "Connect")
         statusItem.button?.imagePosition = .imageLeading
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem.menu = menu
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    /// Left click opens the side panel; right click (or ctrl-click) shows the small menu.
+    @objc private func statusClicked() {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            let menu = NSMenu()
+            menu.delegate = self
+            statusItem.menu = menu
+            statusItem.button?.performClick(nil)
+            statusItem.menu = nil
+        } else {
+            panel.toggle()
+        }
     }
 
     private func updateBadge() {
@@ -68,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem.button?.title = count > 0 ? " \(count)" : ""
         statusItem.button?.image = NSImage(systemSymbolName: count > 0 ? "heart.text.square.fill" : "heart.text.square",
                                            accessibilityDescription: "Connect")
-        if count == 0 { popup.hide() }
+        panel.unreadChanged(count)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -82,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             who.isEnabled = false
             menu.addItem(who)
         }
-        menu.addItem(item("Account…", #selector(openSetup), ""))
+        menu.addItem(item("Settings…", #selector(openSettings), ","))
         let login = item("Open at Login", #selector(toggleLogin), "")
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
@@ -104,18 +118,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         return i
     }
 
-    @objc private func openNotes() {
-        if let latest = store.unreadIncoming.last { openThread(latest.threadID) } else { showWindow() }
-    }
+    @objc private func openNotes() { panel.open() }
 
     @objc private func newNote() {
+        store.showSettings = false
         store.selectedThreadID = nil
-        showWindow()
+        store.composing = true
+        panel.open()
     }
 
-    @objc private func openSetup() {
-        store.showSetup = true
-        showWindow()
+    @objc private func openSettings() {
+        store.showSettings = true
+        panel.open()
     }
 
     @objc private func toggleLogin() {
@@ -124,38 +138,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
-
-    // MARK: Window
-
-    func openThread(_ id: UUID) {
-        popup.hide()
-        store.selectedThreadID = id
-        store.markThreadRead(id)
-        showWindow()
-    }
-
-    func showWindow() {
-        if window == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                             backing: .buffered, defer: false)
-            w.title = "Connect"
-            w.titleVisibility = .hidden
-            w.titlebarAppearsTransparent = true
-            w.isMovableByWindowBackground = true
-            w.isReleasedWhenClosed = false
-            w.delegate = self
-            w.contentView = NSHostingView(rootView: RootView().environmentObject(store))
-            w.center()
-            w.setFrameAutosaveName("ConnectWindow")
-            window = w
-        }
-        NSApp.setActivationPolicy(.regular)   // show in Dock / ⌘-Tab while the window is open
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
-    }
 }

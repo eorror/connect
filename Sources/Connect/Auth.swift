@@ -60,7 +60,8 @@ final class AuthManager: ObservableObject {
             for item in f.queryItems ?? [] { params[item.name] = item.value }
         }
         guard let code = params["code"] else {
-            throw APIError(message: params["error_description"] ?? params["error"] ?? "Sign-in didn't return a code")
+            let raw = params["error_description"] ?? params["error"] ?? "Sign-in didn't return a code"
+            throw APIError(message: raw.replacingOccurrences(of: "+", with: " "))
         }
         let s = try await Self.token(backend: backend, grant: "pkce",
                                      body: ["auth_code": code, "code_verifier": verifier])

@@ -31,5 +31,6 @@ create policy "mark my notes read" on public.notes for update to authenticated
   with check (recipient_email = lower(auth.jwt() ->> 'email'));
 
 revoke all on public.notes from anon;
+revoke all on public.notes from authenticated;   -- undo Supabase's automatic "expose new tables" grants
 grant select, insert on public.notes to authenticated;
 grant update (read_at) on public.notes to authenticated;

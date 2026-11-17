@@ -10,6 +10,9 @@ final class NotesStore: ObservableObject {
     @Published var selectedThreadID: UUID?
     @Published var lastError: String?
     @Published var showSetup = false
+    /// Panel screens: writing a fresh note, or the settings page.
+    @Published var composing = false
+    @Published var showSettings = false
     @Published private(set) var backend: Backend? = Backend.load()
     @Published private(set) var partnerEmail: String = UserDefaults.standard.string(forKey: "partnerEmail") ?? ""
 
@@ -150,6 +153,7 @@ final class NotesStore: ObservableObject {
         }
         notes.append(Note(id: new.id, createdAt: Date(), senderEmail: new.senderEmail, senderName: new.senderName,
                           recipientEmail: new.recipientEmail, body: body, replyTo: replyTo, readAt: nil))
+        composing = false
         selectedThreadID = replyTo ?? new.id
         lastError = nil
         Task { await refresh() }
