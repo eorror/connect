@@ -22,6 +22,7 @@ struct PanelRoot: View {
                             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .onHover { panel.panelHover($0) }
                     .onExitCommand { panel.collapse() }
             } else {
                 NoteTab()
@@ -32,7 +33,8 @@ struct PanelRoot: View {
     }
 }
 
-/// The small thing that pokes out of the right edge when a note arrives.
+/// The tab that always pokes out of the right edge. Slim when there's nothing new; shows her
+/// initial and a count when a note is waiting. Hover to open, drag to move it up or down.
 struct NoteTab: View {
     @EnvironmentObject var store: NotesStore
     @EnvironmentObject var panel: PanelState
@@ -40,36 +42,54 @@ struct NoteTab: View {
 
     var body: some View {
         let unread = store.unreadIncoming.count
-        let shape = UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18,
+        let radius: CGFloat = unread > 0 ? 18 : 7
+        let shape = UnevenRoundedRectangle(topLeadingRadius: radius, bottomLeadingRadius: radius,
                                            bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous)
-        ZStack(alignment: .topLeading) {
-            Circle().fill(Theme.theirTint)
-                .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
-                .overlay(Text(String(store.partnerName.prefix(1)).uppercased()).font(Theme.sans(15, .semibold)))
-                .frame(width: 32, height: 32)
-            if unread > 0 {
-                Text("\(unread)")
-                    .font(Theme.sans(10, .semibold))
-                    .foregroundStyle(Theme.onInk)
-                    .frame(minWidth: 16, minHeight: 16)
-                    .background(Theme.ink, in: Capsule())
-                    .offset(x: 20, y: -5)
+        ZStack(alignment: .trailing) {
+            // Invisible but hoverable: the mouse only has to get close.
+            Color.white.opacity(0.001)
+            Group {
+                if unread > 0 {
+                    ZStack(alignment: .topLeading) {
+                        Circle().fill(Theme.theirTint)
+                            .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
+                            .overlay(Text(String(store.partnerName.prefix(1)).uppercased()).font(Theme.sans(15, .semibold)))
+                            .frame(width: 32, height: 32)
+                        Text("\(unread)")
+                            .font(Theme.sans(10, .semibold))
+                            .foregroundStyle(Theme.onInk)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(Theme.ink, in: Capsule())
+                            .offset(x: 20, y: -5)
+                    }
+                    .padding(.leading, 11)
+                    .frame(width: hovering ? 58 : 54, height: 50, alignment: .leading)
+                } else {
+                    Capsule().fill(Theme.ink3.opacity(0.5)).frame(width: 3, height: 26)
+                        .frame(width: hovering ? 16 : 11, height: 64)
+                }
             }
+            .background {
+                shape.fill(.regularMaterial)
+                    .overlay(shape.fill(Theme.panel))
+                    .overlay(shape.strokeBorder(Theme.stroke, lineWidth: 1))
+            }
+            .clipShape(shape)
         }
-        .padding(.leading, 11)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background {
-            shape.fill(.regularMaterial)
-                .overlay(shape.fill(Theme.panel))
-                .overlay(shape.strokeBorder(Theme.stroke, lineWidth: 1))
+        .contentShape(Rectangle())
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hovering)
+        .onHover { inside in
+            hovering = inside
+            panel.tabHover(inside)
         }
-        .clipShape(shape)
-        .contentShape(shape)
-        .offset(x: hovering ? 0 : 4)
-        .animation(.spring(response: 0.35, dampingFraction: 0.65), value: hovering)
-        .onHover { hovering = $0 }
+        .gesture(
+            DragGesture(minimumDistance: 3)
+                .onChanged { _ in panel.tabDragChanged() }
+                .onEnded { _ in panel.tabDragEnded() }
+        )
         .onTapGesture { panel.open() }
-        .help(unread == 1 ? "A note from \(store.partnerName)" : "\(unread) notes from \(store.partnerName)")
+        .help(unread == 0 ? "Connect. Hover to open, drag to move"
+              : unread == 1 ? "A note from \(store.partnerName)" : "\(unread) notes from \(store.partnerName)")
     }
 }
 
@@ -155,9 +175,9 @@ struct PanelView: View {
         switch screen {
         case .setup: return "Welcome"
         case .settings: return "Settings"
-        case .list: return "Connect"
+        case .list: return "Notes"
         case .compose: return "New note"
-        case .thread(let t): return store.isMine(t.root) ? "Your note" : t.root.senderName
+        case .thread(let t): return store.isMine(t.root) ? "Your note" : "From \(t.root.senderName)"
         }
     }
 }
@@ -191,6 +211,7 @@ struct IconButton: View {
 
 // MARK: - List
 
+/// Notes as cards, newest first. A note only becomes a thread once someone replies to it.
 struct NotesList: View {
     @EnvironmentObject var store: NotesStore
 
@@ -198,84 +219,170 @@ struct NotesList: View {
         if store.threads.isEmpty {
             VStack(spacing: 10) {
                 Text("No notes yet").font(Theme.serif(22))
-                Text("Write the first one.").font(Theme.sans(13)).foregroundStyle(Theme.ink3)
+                Text("Leave the first one.").font(Theme.sans(13)).foregroundStyle(Theme.ink3)
                 Button("Write a note") { store.composing = true }.buttonStyle(.pill).padding(.top, 4)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVStack(spacing: 4) {
+                LazyVStack(spacing: 10) {
                     ForEach(store.threads) { thread in
-                        ThreadRow(thread: thread, selected: false)
+                        NoteCardRow(thread: thread)
                             .onTapGesture { store.selectedThreadID = thread.id }
                     }
                 }
-                .padding(8)
+                .padding(12)
             }
         }
     }
 }
 
-// MARK: - Thread
+struct NoteCardRow: View {
+    @EnvironmentObject var store: NotesStore
+    let thread: NoteThread
+    @State private var hovering = false
+
+    var body: some View {
+        let note = thread.root
+        let mine = store.isMine(note)
+        let unread = store.unreadCount(in: thread) > 0
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(mine ? "You" : note.senderName).font(Theme.sans(12, .semibold))
+                if unread { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
+                Spacer()
+                Text(note.createdAt, format: .relative(presentation: .named))
+                    .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+            }
+            Text(note.body).font(Theme.serif(18)).lineLimit(4).lineSpacing(1)
+            if !thread.replies.isEmpty {
+                Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
+                      systemImage: "arrowshape.turn.up.left")
+                    .font(Theme.sans(11, .medium)).foregroundStyle(Theme.ink2)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(mine ? Theme.mineTint : Theme.theirTint)
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                .shadow(color: Theme.shadow, radius: hovering ? 12 : 6, y: hovering ? 5 : 3)
+        }
+        .scaleEffect(hovering ? 1.01 : 1)
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+    }
+}
+
+// MARK: - A note (and its replies, if any)
 
 struct ThreadView: View {
     @EnvironmentObject var store: NotesStore
     let thread: NoteThread
     @State private var draft = ""
     @State private var sending = false
+    @State private var replying = false
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(thread.all) { note in
-                            NoteBubble(note: note, isRoot: note.id == thread.root.id,
-                                       showSeen: note.id == lastMine?.id)
-                                .id(note.id)
+                    VStack(alignment: .leading, spacing: 10) {
+                        NoteCard(note: thread.root, large: true)
+                        if !thread.replies.isEmpty {
+                            HStack(spacing: 6) {
+                                Rectangle().fill(Theme.line).frame(width: 2, height: 14)
+                                Text("Replies").font(Theme.sans(11, .semibold)).foregroundStyle(Theme.ink3)
+                            }
+                            .padding(.leading, 10)
+                            ForEach(thread.replies) { reply in
+                                NoteCard(note: reply, large: false).id(reply.id)
+                                    .padding(.leading, 14)
+                            }
+                        }
+                        if let mine = thread.all.last(where: { store.isMine($0) }), mine.readAt != nil {
+                            Text("Seen").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
-                    .padding(16)
+                    .padding(14)
                 }
-                .onAppear { proxy.scrollTo(thread.last.id, anchor: .bottom) }
                 .onChange(of: thread.replies.count) { _, _ in
                     withAnimation { proxy.scrollTo(thread.last.id, anchor: .bottom) }
                 }
             }
             Rectangle().fill(Theme.line).frame(height: 1)
-            replyBar
+            bottom
         }
-        .onAppear { focused = true }
     }
 
-    private var lastMine: Note? { thread.all.last(where: { store.isMine($0) }) }
     private var empty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    private var replyBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            MessageField(text: $draft, placeholder: "Reply…", focused: $focused) { send(asReply: true) }
-            HStack {
-                Text("↩ send · ⌥↩ new line").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
-                Spacer()
-                Button("Send as new note") { send(asReply: false) }
-                    .buttonStyle(.plain)
-                    .font(Theme.sans(12, .medium))
-                    .foregroundStyle(Theme.ink2)
-                    .disabled(sending || empty)
-                    .opacity(empty ? 0.4 : 1)
+    @ViewBuilder private var bottom: some View {
+        if replying {
+            VStack(alignment: .leading, spacing: 8) {
+                MessageField(text: $draft, placeholder: "Reply to this note…", focused: $focused) { send() }
+                HStack {
+                    Text("↩ send · ⌥↩ new line").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                    Spacer()
+                    Button("Cancel") { replying = false; draft = "" }
+                        .buttonStyle(.plain).font(Theme.sans(12, .medium)).foregroundStyle(Theme.ink2)
+                }
             }
+            .padding(12)
+            .onAppear { focused = true }
+        } else {
+            HStack(spacing: 8) {
+                Button { replying = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                    .buttonStyle(.pill)
+                Button {
+                    store.selectedThreadID = nil
+                    store.composing = true
+                } label: { Label("New note", systemImage: "square.and.pencil") }
+                    .buttonStyle(.pillSecondary)
+                Spacer()
+            }
+            .padding(12)
         }
-        .padding(12)
     }
 
-    private func send(asReply: Bool) {
+    private func send() {
         guard !sending, !empty else { return }
         let text = draft
         sending = true
         Task {
-            if await store.send(text, replyTo: asReply ? thread.root.id : nil) { draft = "" }
+            if await store.send(text, replyTo: thread.root.id) { draft = ""; replying = false }
             sending = false
+        }
+    }
+}
+
+/// One note on its own card, tinted by who wrote it.
+struct NoteCard: View {
+    @EnvironmentObject var store: NotesStore
+    let note: Note
+    let large: Bool
+
+    var body: some View {
+        let mine = store.isMine(note)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(mine ? "You" : note.senderName) · \(note.createdAt.formatted(.relative(presentation: .named)))")
+                .font(Theme.sans(11, .medium)).foregroundStyle(Theme.ink3)
+            Text(note.body)
+                .font(large ? Theme.serif(22) : Theme.serif(17))
+                .lineSpacing(2)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(large ? 18 : 14)
+        .background {
+            RoundedRectangle(cornerRadius: large ? 18 : 14, style: .continuous)
+                .fill(mine ? Theme.mineTint : Theme.theirTint)
+                .overlay(RoundedRectangle(cornerRadius: large ? 18 : 14, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                .shadow(color: Theme.shadow, radius: 8, y: 3)
         }
     }
 }
@@ -565,80 +672,3 @@ struct ThemedField: View {
             .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
     }
 }
-
-struct ThreadRow: View {
-    @EnvironmentObject var store: NotesStore
-    let thread: NoteThread
-    let selected: Bool
-    @State private var hovering = false
-
-    var body: some View {
-        let unread = store.unreadCount(in: thread)
-        let mine = store.isMine(thread.root)
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(mine ? Theme.mineDot : Theme.theirDot).frame(width: 8, height: 8).padding(.top, 5)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(mine ? "You" : thread.root.senderName).font(Theme.sans(13, .semibold))
-                    Spacer()
-                    Text(thread.last.createdAt, format: .relative(presentation: .named))
-                        .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
-                }
-                Text(thread.root.body).font(Theme.sans(13)).foregroundStyle(Theme.ink2).lineLimit(2)
-                if !thread.replies.isEmpty {
-                    Text("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")")
-                        .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
-                }
-            }
-            if unread > 0 {
-                Circle().fill(Theme.accent).frame(width: 7, height: 7).padding(.top, 6)
-            }
-        }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(selected ? Theme.accentSoft : (hovering ? Theme.glass2 : .clear))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent.opacity(0.55) : .clear, lineWidth: 1))
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 14))
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
-    }
-}
-
-struct NoteBubble: View {
-    @EnvironmentObject var store: NotesStore
-    let note: Note
-    let isRoot: Bool
-    let showSeen: Bool
-
-    var body: some View {
-        let mine = store.isMine(note)
-        HStack {
-            if mine { Spacer(minLength: 36) }
-            VStack(alignment: mine ? .trailing : .leading, spacing: 5) {
-                Text("\(mine ? "You" : note.senderName) · \(note.createdAt.formatted(.relative(presentation: .named)))")
-                    .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
-                Text(note.body)
-                    .font(isRoot ? Theme.serif(19) : Theme.sans(14))
-                    .lineSpacing(isRoot ? 2 : 1)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, isRoot ? 18 : 14)
-                    .padding(.vertical, isRoot ? 14 : 10)
-                    .background {
-                        RoundedRectangle(cornerRadius: isRoot ? 16 : 14, style: .continuous)
-                            .fill(mine ? Theme.mineTint : Theme.theirTint)
-                            .overlay(RoundedRectangle(cornerRadius: isRoot ? 16 : 14, style: .continuous)
-                                .strokeBorder(Theme.stroke, lineWidth: 1))
-                            .shadow(color: Theme.shadow, radius: 10, y: 4)
-                    }
-                if showSeen && note.readAt != nil {
-                    Text("Seen").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
-                }
-            }
-            if !mine { Spacer(minLength: 36) }
-        }
-    }
-}
-

@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.state.quit = { NSApp.terminate(nil) }
         setupStatusItem()
 
-        store.onIncoming = { [weak self] _ in self?.panel.showTab() }
+        store.onIncoming = { [weak self] _ in self?.panel.noteArrived() }
         store.isViewingThread = { [weak self] id in
             guard let self else { return false }
             return self.panel.isOpen && self.store.selectedThreadID == id
@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         store.start()
-        if !store.isConfigured { panel.open() }
+        if store.isConfigured { panel.showTab() } else { panel.open() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
