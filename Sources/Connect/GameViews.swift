@@ -246,6 +246,7 @@ struct GamePlay: View {
                     case .memory: MemoryBoard(board: b)
                     case .rps: RPSBoard(board: b)
                     case .dots: DotsBoard(board: b)
+                    case .pong: PongBoard(live: games.pong, board: b)
                     }
                 }
                 .padding(.vertical, 2)
@@ -264,11 +265,11 @@ struct GamePlay: View {
         }
     }
 
-    private func showsScore(_ b: Board) -> Bool { b.kind == .memory || b.kind == .rps || b.kind == .dots }
+    private func showsScore(_ b: Board) -> Bool { b.kind == .memory || b.kind == .rps || b.kind == .dots || b.kind == .pong }
 
     private func activeIndex(_ b: Board) -> Int? {
         guard b.result == nil else { return nil }
-        if b.kind == .rps { return nil }
+        if b.kind == .rps || b.kind == .pong { return nil }
         return b.turn
     }
 
@@ -282,6 +283,7 @@ struct GamePlay: View {
             if b.picks[games.myIndex] < 0 { return b.round == 0 ? "Pick one!" : "Round \(b.round + 1): pick one!" }
             return "Waiting for \(them)…"
         }
+        if b.kind == .pong { return "Move your mouse ↔︎" }
         if b.memoryMismatch { return b.turn == games.myIndex ? "Not a pair 🙈" : "Not a pair!" }
         return b.turn == games.myIndex ? "Your turn 💕" : "\(them)'s turn…"
     }

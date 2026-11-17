@@ -3,7 +3,7 @@ import Foundation
 
 /// One message between the two apps about games. Everything travels as this.
 struct GameMsg: Codable {
-    /// hello / here (online), invite / accept / decline / cancel, board, rps, lobby, leave
+    /// hello / here (online), invite / accept / decline / cancel, board, rps, ball, pad, lobby, leave
     var t: String
     var from: String
     var to: String
@@ -11,6 +11,9 @@ struct GameMsg: Codable {
     var seq: Int? = nil
     var board: Board? = nil
     var pick: Int? = nil
+    /// Pong: ball [x, y, vx, vy, wait] and my paddle.
+    var ball: [Double]? = nil
+    var pad: Double? = nil
 }
 
 /// Live connection to the other laptop over Supabase Realtime broadcast: a WebSocket room only

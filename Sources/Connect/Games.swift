@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - The games
 
 enum GameKind: String, Codable, CaseIterable, Identifiable {
-    case tictactoe, connect4, memory, rps, dots
+    case tictactoe, connect4, memory, rps, dots, pong
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum GameKind: String, Codable, CaseIterable, Identifiable {
         case .memory: return "Memory match"
         case .rps: return "Rock paper scissors"
         case .dots: return "Dots & boxes"
+        case .pong: return "Pong"
         }
     }
 
@@ -26,6 +27,7 @@ enum GameKind: String, Codable, CaseIterable, Identifiable {
         case .memory: return "🧸"
         case .rps: return "✌️"
         case .dots: return "✏️"
+        case .pong: return "🏓"
         }
     }
 
@@ -36,6 +38,7 @@ enum GameKind: String, Codable, CaseIterable, Identifiable {
         case .memory: return "find the pairs"
         case .rps: return "first to 3"
         case .dots: return "close the most boxes"
+        case .pong: return "first to 5, live"
         }
     }
 
@@ -47,6 +50,7 @@ enum GameKind: String, Codable, CaseIterable, Identifiable {
         case .memory: return Color(hex: 0xF6E3C6)
         case .rps: return Color(hex: 0xE2DBF4)
         case .dots: return Color(hex: 0xD8EEDC)
+        case .pong: return Color(hex: 0xFBE0CF)
         }
     }
 }
@@ -100,7 +104,7 @@ struct Board: Codable, Equatable {
             }
             faces = deck
             owner = Array(repeating: -1, count: 16)
-        case .rps: break
+        case .rps, .pong: break
         case .dots:
             lines = Array(repeating: -1, count: 24)
             boxes = Array(repeating: -1, count: 9)
@@ -231,7 +235,9 @@ final class GameCenter: ObservableObject {
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var partnerOnline = false
-    @Published private(set) var board: Board?
+    @Published private(set) var board: Board? { didSet { syncPong() } }
+    /// The live ball and paddles while playing Pong.
+    let pong = PongLive()
     /// A short line for the home screen, like "Abbey can't play right now".
     @Published var notice: String?
 
@@ -252,6 +258,9 @@ final class GameCenter: ObservableObject {
         self.store = store
         link.onConnected = { [weak self] in self?.say("hello") }
         link.onMessage = { [weak self] m in self?.received(m) }
+        pong.onHit = { [weak self] b in self?.say("ball", ball: b) }
+        pong.onPad = { [weak self] x in self?.say("pad", pad: x) }
+        pong.onMiss = { [weak self] p in self?.pongMissed(by: p) }
     }
 
     var me: String { store.myEmail }
@@ -264,6 +273,7 @@ final class GameCenter: ObservableObject {
     var isMyTurn: Bool {
         guard phase == .playing, let b = board, b.result == nil else { return false }
         if b.kind == .rps { return b.picks[myIndex] < 0 }
+        if b.kind == .pong { return false }
         return b.turn == myIndex && !b.memoryMismatch
     }
 
@@ -301,10 +311,10 @@ final class GameCenter: ObservableObject {
         if partnerOnline != on { partnerOnline = on }
     }
 
-    private func say(_ t: String, board: Board? = nil, pick: Int? = nil) {
+    private func say(_ t: String, board: Board? = nil, pick: Int? = nil, ball: [Double]? = nil, pad: Double? = nil) {
         guard !me.isEmpty, !partner.isEmpty else { return }
         link.send(GameMsg(t: t, from: me, to: partner, sid: sid.isEmpty ? nil : sid,
-                          seq: board == nil ? nil : seq, board: board, pick: pick))
+                          seq: board == nil ? nil : seq, board: board, pick: pick, ball: ball, pad: pad))
     }
 
     private func setPhase(_ p: Phase) {
@@ -328,7 +338,11 @@ final class GameCenter: ObservableObject {
             switch phase {
             case .inviting: say("invite")
             case .lobby: say("lobby")
-            case .playing: if let board { say("board", board: board) }
+            case .playing:
+                if let board {
+                    say("board", board: board)
+                    if board.kind == .pong, pong.running { say("ball", ball: pong.snapshot) }
+                }
             default: break
             }
         case "invite":
@@ -373,6 +387,10 @@ final class GameCenter: ObservableObject {
             b.rps(player: theirIndex, pick: p)
             board = b
             onAttentionChange?()
+        case "ball":
+            if sameSession, let a = m.ball, board?.kind == .pong { pong.setBall(a) }
+        case "pad":
+            if sameSession, let x = m.pad { pong.theirPad(x) }
         case "leave":
             if sameSession, phase != .idle {
                 board = nil
@@ -424,6 +442,35 @@ final class GameCenter: ObservableObject {
         seq += 1
         setPhase(.playing)
         say("board", board: board)
+        if kind == .pong { say("ball", ball: pong.serve(toward: starter)) }
+        onAttentionChange?()
+    }
+
+    // MARK: Pong
+
+    /// Start or stop the live court to match the board.
+    private func syncPong() {
+        let live = phase == .playing || board != nil
+        if let b = board, b.kind == .pong, b.result == nil, live {
+            pong.practice = sid == "preview"
+            if !pong.running { pong.start(me: myIndex) }
+        } else if pong.running {
+            pong.stop()
+        }
+    }
+
+    private func pongMissed(by p: Int) {
+        guard var b = board, b.kind == .pong, b.result == nil else { return }
+        if pong.practice {
+            _ = pong.serve(toward: p)
+            return
+        }
+        b.scores[1 - p] += 1
+        if b.scores[1 - p] >= PongLive.winScore { b.result = 1 - p }
+        board = b
+        seq += 1
+        say("board", board: b)
+        if b.result == nil { say("ball", ball: pong.serve(toward: p)) }
         onAttentionChange?()
     }
 
@@ -492,8 +539,10 @@ final class GameCenter: ObservableObject {
         case .memory: if let j = b.faces.indices.first(where: { $0 > 0 && b.faces[$0] == b.faces[0] }) { _ = b.flip(0); _ = b.flip(j) }; _ = b.flip(5)
         case .rps: b.rps(player: 0, pick: 0); b.rps(player: 1, pick: 2); b.rps(player: 1, pick: 1)
         case .dots: for e in [0, 12, 13, 3, 7, 20] { _ = b.drawLine(e) }
+        case .pong: b.scores = [2, 1]
         }
         board = b
         setPhase(.playing)
+        if kind == .pong { _ = pong.serve(toward: 1) }
     }
 }
