@@ -53,6 +53,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let name = ProcessInfo.processInfo.environment["CONNECT_PLAY_EMOTE"], let e = Emote(rawValue: name) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.panel.open(); self.panel.state.playEmote(e) }
         }
+        // Debug: CONNECT_RENDER=/path.png draws the preview letter to an image and quits.
+        if let out = ProcessInfo.processInfo.environment["CONNECT_RENDER"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                let paper = Paper(rawValue: ProcessInfo.processInfo.environment["CONNECT_PAPER"] ?? "") ?? .beige
+                let view = LetterCard(note: self.store.previewLetter(paper: paper))
+                    .environmentObject(self.store)
+                    .frame(width: Doodle.sheetWidth)
+                    .padding(10)
+                    .background(Color(white: 0.16))
+                let r = ImageRenderer(content: view)
+                r.scale = 2
+                if let tiff = r.nsImage?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                   let png = rep.representation(using: .png, properties: [:]) {
+                    try? png.write(to: URL(fileURLWithPath: out))
+                }
+                exit(0)
+            }
+        }
         // Debug look-checks: CONNECT_PREVIEW=compose | letter | tab (tab and letter add a local fake letter)
         if let what = ProcessInfo.processInfo.environment["CONNECT_PREVIEW"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {

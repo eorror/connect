@@ -69,10 +69,36 @@ final class NotesStore: ObservableObject {
 
     /// Debug only (CONNECT_PREVIEW): a local, unsent letter from the partner, to check the look.
     func injectPreviewLetter(paper: Paper) {
-        notes.append(Note(id: UUID(), createdAt: Date(), senderEmail: partnerEmail, senderName: partnerName,
+        notes.append(previewLetter(paper: paper))
+    }
+
+    func previewLetter(paper: Paper) -> Note {
+        Note(id: UUID(), createdAt: Date(), senderEmail: partnerEmail, senderName: partnerName,
                           recipientEmail: myEmail,
-                          body: paper.token + "\nMissing you already. Dinner tonight? I'll bring the good bread x",
-                          replyTo: nil, readAt: nil))
+                          body: paper.token + "\n[doodle:\(Self.previewDoodle)]\nMissing you already. Dinner tonight? I'll bring the good bread x",
+                          replyTo: nil, readAt: nil)
+    }
+
+    /// A heart and a little sun, encoded the way a real drawing travels.
+    private static var previewDoodle: String {
+        let heart: [CGPoint] = stride(from: 0.0, through: 2 * .pi, by: 0.2).map { t in
+            let x = 16 * pow(sin(t), 3)
+            let y = 13 * cos(t) - 5 * cos(2 * t) - 2 * cos(3 * t) - cos(4 * t)
+            return CGPoint(x: 860 + x * 4.2, y: 120 - y * 4.2)
+        }
+        let sun: [CGPoint] = stride(from: 0.0, through: 2 * .pi + 0.3, by: 0.35).map { t in
+            CGPoint(x: 700 + cos(t) * 28, y: 80 + sin(t) * 28)
+        }
+        var rays: [[CGPoint]] = []
+        for i in 0..<8 {
+            let t = Double(i) * .pi / 4
+            rays.append([CGPoint(x: 700 + cos(t) * 45, y: 80 + sin(t) * 45),
+                         CGPoint(x: 700 + cos(t) * 65, y: 80 + sin(t) * 65)])
+        }
+        let squiggle: [CGPoint] = stride(from: 0.0, through: 1.0, by: 0.05).map { u in
+            CGPoint(x: 80 + u * 420, y: 860 + sin(u * 14) * 18)
+        }
+        return Doodle.encode([heart, sun] + rays + [squiggle])
     }
 
     func isMine(_ note: Note) -> Bool { note.senderEmail == myEmail }

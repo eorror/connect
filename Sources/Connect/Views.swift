@@ -272,7 +272,7 @@ struct NoteCardRow: View {
                     Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)").font(Theme.serif(15))
                 }
             } else {
-                Text(note.text).font(Theme.sans(12.5)).lineLimit(2)
+                Text(note.text.isEmpty ? "a little drawing ✏️" : note.text).font(Theme.sans(12.5)).lineLimit(2)
             }
             if !thread.replies.isEmpty {
                 Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
