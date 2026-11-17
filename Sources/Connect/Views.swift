@@ -262,7 +262,14 @@ struct NoteCardRow: View {
                 Text(note.createdAt, format: .relative(presentation: .named))
                     .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
             }
-            Text(note.body).font(Theme.serif(18)).lineLimit(4).lineSpacing(1)
+            if let e = note.emote {
+                HStack(spacing: 10) {
+                    Text(e.symbol).font(.system(size: 30))
+                    Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)").font(Theme.serif(18))
+                }
+            } else {
+                Text(note.body).font(Theme.serif(18)).lineLimit(4).lineSpacing(1)
+            }
             if !thread.replies.isEmpty {
                 Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
                       systemImage: "arrowshape.turn.up.left")
@@ -371,6 +378,7 @@ struct ThreadView: View {
 /// One note on its own card, tinted by who wrote it.
 struct NoteCard: View {
     @EnvironmentObject var store: NotesStore
+    @EnvironmentObject var panel: PanelState
     let note: Note
     let large: Bool
 
@@ -379,11 +387,23 @@ struct NoteCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("\(mine ? "You" : note.senderName) · \(note.createdAt.formatted(.relative(presentation: .named)))")
                 .font(Theme.sans(11, .medium)).foregroundStyle(Theme.ink3)
-            Text(note.body)
-                .font(large ? Theme.serif(22) : Theme.serif(17))
-                .lineSpacing(2)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let e = note.emote {
+                HStack(spacing: 12) {
+                    Text(e.symbol).font(.system(size: large ? 44 : 30))
+                    Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)")
+                        .font(large ? Theme.serif(20) : Theme.serif(17))
+                    Spacer()
+                    Button { panel.playEmote(e) } label: { Image(systemName: "play.fill") }
+                        .buttonStyle(.pillSecondary)
+                        .help("Play again")
+                }
+            } else {
+                Text(note.body)
+                    .font(large ? Theme.serif(22) : Theme.serif(17))
+                    .lineSpacing(2)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(large ? 18 : 14)
         .background {
@@ -424,6 +444,7 @@ struct ComposeView: View {
     @State private var draft = ""
     @State private var sending = false
     @State private var sent = false
+    @State private var sentLabel = "Sent"
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -431,7 +452,7 @@ struct ComposeView: View {
             MessageField(text: $draft, placeholder: "Write something nice…", serif: true, focused: $focused) { send() }
             HStack {
                 if sent {
-                    Label("Sent", systemImage: "checkmark").font(Theme.sans(12, .semibold)).foregroundStyle(Theme.ink2)
+                    Label(sentLabel, systemImage: "checkmark").font(Theme.sans(12, .semibold)).foregroundStyle(Theme.ink2)
                         .transition(.opacity)
                 } else {
                     Text("↩ send · ⌥↩ new line").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
@@ -441,6 +462,10 @@ struct ComposeView: View {
                     .buttonStyle(.pill)
                     .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            Rectangle().fill(Theme.line).frame(height: 1)
+            EmoteBar { sendEmote($0) }
+                .disabled(sending)
+                .frame(maxWidth: .infinity)
         }
         .padding(14)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -454,6 +479,21 @@ struct ComposeView: View {
             // Stay on this little card after sending, ready for the next one.
             if await store.send(draft, replyTo: nil, openAfter: false) {
                 draft = ""
+                sentLabel = "Sent"
+                withAnimation { sent = true }
+                try? await Task.sleep(for: .seconds(2))
+                withAnimation { sent = false }
+            }
+            sending = false
+        }
+    }
+
+    private func sendEmote(_ e: Emote) {
+        guard !sending else { return }
+        sending = true
+        Task {
+            if await store.send(e.token, replyTo: nil, openAfter: false) {
+                sentLabel = "Sent \(e.symbol)"
                 withAnimation { sent = true }
                 try? await Task.sleep(for: .seconds(2))
                 withAnimation { sent = false }

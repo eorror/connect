@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusItem: NSStatusItem!
     private var panel: SidePanelController!
+    private let emotes = EmoteOverlay()
     private var cancellables = Set<AnyCancellable>()
 
     override init() {
@@ -25,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
         panel = SidePanelController(store: store, updater: updater.updater)
         panel.state.quit = { NSApp.terminate(nil) }
+        panel.state.playEmote = { [weak self] e in self?.emotes.play(e) }
         setupStatusItem()
 
         store.onIncoming = { [weak self] _ in self?.panel.noteArrived() }
@@ -44,6 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         store.start()
+        // For checking the animation without sending anything: CONNECT_PLAY_EMOTE=flowers
+        if let name = ProcessInfo.processInfo.environment["CONNECT_PLAY_EMOTE"], let e = Emote(rawValue: name) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.emotes.play(e) }
+        }
         if store.isConfigured { panel.showTab() } else { panel.open() }
     }
 

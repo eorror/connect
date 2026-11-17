@@ -10,6 +10,8 @@ final class PanelState: ObservableObject {
     var open: () -> Void = {}
     var collapse: () -> Void = {}
     var quit: () -> Void = {}
+    /// Rain an emote across the screen.
+    var playEmote: (Emote) -> Void = { _ in }
     /// Mouse entered/left the edge tab or the open panel.
     var tabHover: (Bool) -> Void = { _ in }
     var panelHover: (Bool) -> Void = { _ in }
@@ -119,7 +121,7 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         if !store.isConfigured || store.showSetup { return NSSize(width: 340, height: 520) }
         if store.showSettings { return NSSize(width: 320, height: 470) }
         if store.selectedThreadID != nil { return NSSize(width: 300, height: 420) }
-        if store.composing { return NSSize(width: 290, height: 214) }
+        if store.composing { return NSSize(width: 290, height: 256) }
         return NSSize(width: 300, height: 420)
     }
 
@@ -161,8 +163,10 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         hoverOpenWork?.cancel()
         leaveWork?.cancel()
         self.pinned = pinned || self.pinned
+        var emoteToPlay: Emote?
         if mode != .open, !store.showSettings {
             if let unread = store.unreadIncoming.last {
+                emoteToPlay = unread.emote
                 // Something new: open straight to it.
                 store.composing = false
                 store.selectedThreadID = unread.threadID
@@ -189,6 +193,7 @@ final class SidePanelController: NSObject, NSWindowDelegate {
             }
         }
         if self.pinned { takeFocus() }
+        if let emoteToPlay { state.playEmote(emoteToPlay) }
     }
 
     func toggle() { mode == .open ? collapse() : open() }
