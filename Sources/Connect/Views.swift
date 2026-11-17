@@ -51,20 +51,10 @@ struct NoteTab: View {
             Color.white.opacity(0.001)
             Group {
                 if unread > 0 {
-                    ZStack(alignment: .topTrailing) {
-                        Circle().fill(Theme.theirTint)
-                            .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
-                            .overlay(Text(String(store.partnerName.prefix(1)).uppercased()).font(Theme.sans(15, .semibold)))
-                            .frame(width: 32, height: 32)
-                        Text("\(unread)")
-                            .font(Theme.sans(10, .semibold))
-                            .foregroundStyle(Theme.onInk)
-                            .frame(minWidth: 16, minHeight: 16)
-                            .background(Theme.ink, in: Capsule())
-                            .offset(x: 6, y: -3)
-                    }
-                    .padding(.bottom, 9)
-                    .frame(width: 50, height: hovering ? 54 : 50, alignment: .bottom)
+                    JumpingEnvelope(count: unread,
+                                    color: (store.unreadIncoming.last?.paper ?? .beige).envelope)
+                        .padding(.bottom, 9)
+                        .frame(width: 52, height: hovering ? 48 : 44, alignment: .bottom)
                 } else {
                     Capsule().fill(Theme.ink3.opacity(0.5)).frame(width: 26, height: 3)
                         .frame(width: 64, height: hovering ? 15 : 10)
@@ -90,7 +80,7 @@ struct NoteTab: View {
         )
         .onTapGesture { panel.open() }
         .help(unread == 0 ? "Connect. Hover to open, drag to move"
-              : unread == 1 ? "A note from \(store.partnerName)" : "\(unread) notes from \(store.partnerName)")
+              : unread == 1 ? "A letter from \(store.partnerName)" : "\(unread) letters from \(store.partnerName)")
     }
 }
 
@@ -119,7 +109,7 @@ struct PanelView: View {
                 case .setup: ScrollView { SetupView() }
                 case .settings: SettingsView()
                 case .list: NotesList()
-                case .compose: ComposeView()
+                case .compose: LetterComposer()
                 case .thread(let t): ThreadView(thread: t).id(t.id)
                 }
             }
@@ -160,13 +150,13 @@ struct PanelView: View {
             }
             if store.isConfigured && !store.showSetup {
                 if screen.isCompose {
-                    IconButton("tray.full", help: "All notes") {
+                    IconButton("tray.full", help: "All letters") {
                         store.composing = false
                         store.selectedThreadID = nil
                     }
                 }
                 if screen.isList {
-                    IconButton("square.and.pencil", help: "New note (⌘N)") {
+                    IconButton("square.and.pencil", help: "New letter (⌘N)") {
                         store.selectedThreadID = nil
                         store.composing = true
                     }
@@ -187,9 +177,9 @@ struct PanelView: View {
         switch screen {
         case .setup: return "Welcome"
         case .settings: return "Settings"
-        case .list: return "Notes"
-        case .compose: return "A note for \(store.partnerName.split(separator: " ").first.map(String.init) ?? "")"
-        case .thread(let t): return store.isMine(t.root) ? "Your note" : "From \(t.root.senderName)"
+        case .list: return "Letters"
+        case .compose: return "A letter for \(firstName(store.partnerName))"
+        case .thread(let t): return store.isMine(t.root) ? "Your letter" : "From \(firstName(t.root.senderName))"
         }
     }
 }
@@ -231,8 +221,8 @@ struct NotesList: View {
     var body: some View {
         if store.threads.isEmpty {
             VStack(spacing: 6) {
-                Text("No notes yet").font(Theme.serif(17))
-                Button("Write a note") { store.composing = true }.buttonStyle(.pill).padding(.top, 2)
+                Text("No letters yet").font(Theme.serif(17))
+                Button("Write a letter") { store.composing = true }.buttonStyle(.pill).padding(.top, 2)
             }
             .padding(16)
             .reportHeight()
@@ -242,7 +232,12 @@ struct NotesList: View {
                 VStack(spacing: 6) {
                     ForEach(store.threads) { thread in
                         NoteCardRow(thread: thread)
-                            .onTapGesture { store.selectedThreadID = thread.id }
+                            .onTapGesture {
+                                if let u = thread.all.last(where: { !store.isMine($0) && $0.readAt == nil && $0.emote == nil }) {
+                                    store.envelopeToOpen = u.id
+                                }
+                                store.selectedThreadID = thread.id
+                            }
                     }
                 }
                 .padding(8)
@@ -261,13 +256,15 @@ struct NoteCardRow: View {
         let note = thread.root
         let mine = store.isMine(note)
         let unread = store.unreadCount(in: thread) > 0
-        VStack(alignment: .leading, spacing: 4) {
+        let letter = note.emote == nil
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline) {
-                Text(mine ? "You" : note.senderName).font(Theme.sans(11, .semibold))
-                if unread { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
+                Text(mine ? "To \(firstName(store.partnerName))" : "From \(firstName(note.senderName))")
+                    .font(Theme.script(20))
+                if unread { Circle().fill(Color(hex: 0xE5484D)).frame(width: 6, height: 6) }
                 Spacer()
-                Text(note.createdAt, format: .relative(presentation: .named))
-                    .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                Text(note.createdAt.formatted(.relative(presentation: .named)).lowercased())
+                    .font(Theme.mono(9)).foregroundStyle(letter ? Ink.soft : Theme.ink3)
             }
             if let e = note.emote {
                 HStack(spacing: 10) {
@@ -275,21 +272,22 @@ struct NoteCardRow: View {
                     Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)").font(Theme.serif(15))
                 }
             } else {
-                Text(note.body).font(Theme.serif(15)).lineLimit(3)
+                Text(note.text).font(Theme.hand(15)).lineLimit(2)
             }
             if !thread.replies.isEmpty {
                 Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
                       systemImage: "arrowshape.turn.up.left")
-                    .font(Theme.sans(10, .medium)).foregroundStyle(Theme.ink2)
+                    .font(Theme.mono(9)).foregroundStyle(letter ? Ink.soft : Theme.ink2)
             }
         }
-        .padding(10)
+        .padding(.horizontal, 11).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(letter ? Ink.main : Theme.ink)
         .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(mine ? Theme.mineTint : Theme.theirTint)
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
-                .shadow(color: Theme.shadow, radius: hovering ? 8 : 4, y: 2)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(letter ? note.paper.color : (mine ? Theme.mineTint : Theme.theirTint))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.black.opacity(0.06), lineWidth: 1))
+                .shadow(color: .black.opacity(hovering ? 0.2 : 0.12), radius: hovering ? 7 : 4, y: 2)
         }
         .scaleEffect(hovering ? 1.01 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 16))
@@ -307,12 +305,13 @@ struct ThreadView: View {
     @State private var sending = false
     @State private var replying = false
     @FocusState private var focused: Bool
+    @State private var opening: Note?
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         NoteCard(note: thread.root, large: true)
                         if !thread.replies.isEmpty {
                             HStack(spacing: 6) {
@@ -330,7 +329,16 @@ struct ThreadView: View {
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
-                    .padding(8)
+                    .padding(10)
+                    .opacity(opening == nil ? 1 : 0)
+                    .frame(minHeight: opening == nil ? 0 : 250, alignment: .top)
+                    .overlay {
+                        if let opening {
+                            EnvelopeOpening(note: opening) {
+                                withAnimation(.easeOut(duration: 0.3)) { self.opening = nil }
+                            }
+                        }
+                    }
                     .reportHeight()
                 }
                 .onChange(of: thread.replies.count) { _, _ in
@@ -343,6 +351,12 @@ struct ThreadView: View {
             }
             .reportHeight()
         }
+        .onAppear {
+            if let id = store.envelopeToOpen, let n = thread.all.first(where: { $0.id == id }) {
+                opening = n
+                store.envelopeToOpen = nil
+            }
+        }
     }
 
     private var empty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -350,7 +364,7 @@ struct ThreadView: View {
     @ViewBuilder private var bottom: some View {
         if replying {
             VStack(alignment: .leading, spacing: 8) {
-                MessageField(text: $draft, placeholder: "Reply…", focused: $focused) { send() }
+                MessageField(text: $draft, placeholder: "Write back…", hand: true, focused: $focused) { send() }
                 HStack {
                     Text("↩ send · ⌥↩ new line").font(Theme.sans(10)).foregroundStyle(Theme.ink3)
                     Spacer()
@@ -362,12 +376,12 @@ struct ThreadView: View {
             .onAppear { focused = true }
         } else {
             HStack(spacing: 6) {
-                Button { replying = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                Button { replying = true } label: { Label("Write back", systemImage: "arrowshape.turn.up.left") }
                     .buttonStyle(.pill)
                 Button {
                     store.selectedThreadID = nil
                     store.composing = true
-                } label: { Label("New note", systemImage: "square.and.pencil") }
+                } label: { Label("New letter", systemImage: "square.and.pencil") }
                     .buttonStyle(.pillSecondary)
                 Spacer()
             }
@@ -377,7 +391,7 @@ struct ThreadView: View {
 
     private func send() {
         guard !sending, !empty else { return }
-        let text = draft
+        let text = Paper.saved.token + "\n" + draft
         sending = true
         Task {
             if await store.send(text, replyTo: thread.root.id) { draft = ""; replying = false }
@@ -394,8 +408,16 @@ struct NoteCard: View {
     let large: Bool
 
     var body: some View {
+        if note.emote == nil {
+            LetterCard(note: note, large: large)
+        } else {
+            emoteCard
+        }
+    }
+
+    private var emoteCard: some View {
         let mine = store.isMine(note)
-        VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 4) {
             Text("\(mine ? "You" : note.senderName) · \(note.createdAt.formatted(.relative(presentation: .named)))")
                 .font(Theme.sans(10, .medium)).foregroundStyle(Theme.ink3)
             if let e = note.emote {
@@ -431,6 +453,7 @@ struct MessageField: View {
     @Binding var text: String
     let placeholder: String
     var serif = false
+    var hand = false
     var focused: FocusState<Bool>.Binding
     let onSend: () -> Void
 
@@ -438,81 +461,13 @@ struct MessageField: View {
         TextField(placeholder, text: $text,
                   prompt: Text(placeholder).foregroundStyle(Theme.ink3), axis: .vertical)
             .textFieldStyle(.plain)
-            .font(serif ? Theme.serif(16) : Theme.sans(13))
+            .font(hand ? Theme.hand(16) : serif ? Theme.serif(16) : Theme.sans(13))
             .lineLimit(serif ? 2...5 : 1...5)
             .focused(focused)
             .onSubmit(onSend)
             .padding(9)
             .background(Theme.solid, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
-    }
-}
-
-// MARK: - Compose
-
-struct ComposeView: View {
-    @EnvironmentObject var store: NotesStore
-    @State private var draft = ""
-    @State private var sending = false
-    @State private var sent = false
-    @State private var sentLabel = "Sent"
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            MessageField(text: $draft, placeholder: "Write something nice…", serif: true, focused: $focused) { send() }
-            HStack {
-                if sent {
-                    Label(sentLabel, systemImage: "checkmark").font(Theme.sans(11, .semibold)).foregroundStyle(Theme.ink2)
-                        .transition(.opacity)
-                } else {
-                    Text("↩ send").font(Theme.sans(10)).foregroundStyle(Theme.ink3)
-                }
-                Spacer()
-                Button(sending ? "Sending…" : "Send") { send() }
-                    .buttonStyle(.pill)
-                    .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            Rectangle().fill(Theme.line).frame(height: 1)
-            EmoteBar { sendEmote($0) }
-                .disabled(sending)
-                .frame(maxWidth: .infinity)
-        }
-        .padding(8)
-        .fixedSize(horizontal: false, vertical: true)
-        .reportHeight()
-        .frame(maxHeight: .infinity, alignment: .top)
-        .onAppear { focused = true }
-    }
-
-    private func send() {
-        guard !sending, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        sending = true
-        Task {
-            // Stay on this little card after sending, ready for the next one.
-            if await store.send(draft, replyTo: nil, openAfter: false) {
-                draft = ""
-                sentLabel = "Sent"
-                withAnimation { sent = true }
-                try? await Task.sleep(for: .seconds(2))
-                withAnimation { sent = false }
-            }
-            sending = false
-        }
-    }
-
-    private func sendEmote(_ e: Emote) {
-        guard !sending else { return }
-        sending = true
-        Task {
-            if await store.send(e.token, replyTo: nil, openAfter: false) {
-                sentLabel = "Sent \(e.symbol)"
-                withAnimation { sent = true }
-                try? await Task.sleep(for: .seconds(2))
-                withAnimation { sent = false }
-            }
-            sending = false
-        }
     }
 }
 

@@ -126,7 +126,7 @@ final class SidePanelController: NSObject, NSWindowDelegate {
     /// Slim handle normally; a bigger tab with her initial when something is unread.
     /// The frame is taller than what's drawn so the mouse only has to get close.
     private var tabSize: NSSize {
-        store.unreadIncoming.isEmpty ? NSSize(width: 84, height: 24) : NSSize(width: 60, height: 62)
+        store.unreadIncoming.isEmpty ? NSSize(width: 84, height: 24) : NSSize(width: 60, height: 56)
     }
 
     private var tabFrame: NSRect {
@@ -141,7 +141,7 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         if !store.isConfigured || store.showSetup { return NSSize(width: 320, height: 500) }
         if store.showSettings { return NSSize(width: 290, height: 410) }
         let h = state.fitHeight > 0 ? min(max(state.fitHeight, 100), 440) : 200
-        return NSSize(width: 270, height: ceil(h))
+        return NSSize(width: 290, height: ceil(h))
     }
 
     private var openFrame: NSRect {
@@ -186,6 +186,8 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         if mode != .open, !store.showSettings {
             if let unread = store.unreadIncoming.last {
                 emoteToPlay = unread.emote
+                // A letter (not an emote) opens out of its envelope.
+                if unread.emote == nil { store.envelopeToOpen = unread.id }
                 // Something new: open straight to it.
                 store.composing = false
                 store.selectedThreadID = unread.threadID

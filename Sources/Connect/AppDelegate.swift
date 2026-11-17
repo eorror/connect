@@ -53,6 +53,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let name = ProcessInfo.processInfo.environment["CONNECT_PLAY_EMOTE"], let e = Emote(rawValue: name) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.panel.open(); self.panel.state.playEmote(e) }
         }
+        // Debug look-checks: CONNECT_PREVIEW=compose | letter | tab (tab and letter add a local fake letter)
+        if let what = ProcessInfo.processInfo.environment["CONNECT_PREVIEW"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                if what != "compose" {
+                    self.store.injectPreviewLetter(paper: Paper(rawValue: ProcessInfo.processInfo.environment["CONNECT_PAPER"] ?? "") ?? .beige)
+                    self.panel.unreadChanged(self.store.unreadIncoming.count)
+                }
+                if what != "tab" { self.panel.open() }
+            }
+        }
         if store.isConfigured { panel.showTab() } else { panel.open() }
     }
 

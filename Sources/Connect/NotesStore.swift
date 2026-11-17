@@ -8,6 +8,8 @@ final class NotesStore: ObservableObject {
 
     @Published private(set) var notes: [Note] = []
     @Published var selectedThreadID: UUID?
+    /// A just-arrived letter whose envelope should play opening when it's shown.
+    @Published var envelopeToOpen: UUID?
     @Published var lastError: String?
     @Published var showSetup = false
     /// Panel screens: writing a fresh note, or the settings page.
@@ -63,6 +65,14 @@ final class NotesStore: ObservableObject {
     /// The other person's name once they've written, otherwise their email.
     var partnerName: String {
         notes.last(where: { !isMine($0) })?.senderName ?? partnerEmail
+    }
+
+    /// Debug only (CONNECT_PREVIEW): a local, unsent letter from the partner, to check the look.
+    func injectPreviewLetter(paper: Paper) {
+        notes.append(Note(id: UUID(), createdAt: Date(), senderEmail: partnerEmail, senderName: partnerName,
+                          recipientEmail: myEmail,
+                          body: paper.token + "\nMissing you already. Dinner tonight? I'll bring the good bread x",
+                          replyTo: nil, readAt: nil))
     }
 
     func isMine(_ note: Note) -> Bool { note.senderEmail == myEmail }

@@ -48,6 +48,32 @@ enum Theme {
         return .system(size: size, weight: weight)
     }
 
+    /// Elegant script for "Dear …," and signatures (Pinyon Script).
+    static func script(_ size: CGFloat) -> Font {
+        named(["PinyonScript-Regular", "PinyonScript"], family: "Pinyon Script", size: size)
+            ?? .system(size: size, design: .serif).italic()
+    }
+
+    /// Readable handwriting for the letter itself (Mynerve).
+    static func hand(_ size: CGFloat) -> Font {
+        named(["Mynerve-Regular", "Mynerve"], family: "Mynerve", size: size)
+            ?? .system(size: size, design: .rounded)
+    }
+
+    /// Typewriter labels: dates and small print (Courier Prime).
+    static func mono(_ size: CGFloat) -> Font {
+        named(["CourierPrime-Regular", "CourierPrime"], family: "Courier Prime", size: size)
+            ?? .system(size: size, design: .monospaced)
+    }
+
+    private static func named(_ names: [String], family: String, size: CGFloat) -> Font? {
+        for n in names where NSFont(name: n, size: size) != nil { return .custom(n, size: size) }
+        if let f = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size) {
+            return Font(f)
+        }
+        return nil
+    }
+
     /// Registers any fonts shipped in Contents/Resources/Fonts.
     static func registerFonts() {
         guard let dir = Bundle.main.resourceURL?.appendingPathComponent("Fonts"),
