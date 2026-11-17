@@ -48,22 +48,10 @@ enum Theme {
         return .system(size: size, weight: weight)
     }
 
-    /// Elegant script for "Dear …," and signatures (Pinyon Script).
-    static func script(_ size: CGFloat) -> Font {
-        named(["PinyonScript-Regular", "PinyonScript"], family: "Pinyon Script", size: size)
-            ?? .system(size: size, design: .serif).italic()
-    }
-
-    /// Readable handwriting for the letter itself (Mynerve).
-    static func hand(_ size: CGFloat) -> Font {
-        named(["Mynerve-Regular", "Mynerve"], family: "Mynerve", size: size)
-            ?? .system(size: size, design: .rounded)
-    }
-
-    /// Typewriter labels: dates and small print (Courier Prime).
-    static func mono(_ size: CGFloat) -> Font {
-        named(["CourierPrime-Regular", "CourierPrime"], family: "Courier Prime", size: size)
-            ?? .system(size: size, design: .monospaced)
+    /// Joined-up cursive for "Dear …," and signatures (Dancing Script, semibold so it reads like marker).
+    static func marker(_ size: CGFloat) -> Font {
+        (named(["DancingScript-Regular", "DancingScript"], family: "Dancing Script", size: size)
+            ?? .system(size: size, design: .serif).italic()).weight(.semibold)
     }
 
     private static func named(_ names: [String], family: String, size: CGFloat) -> Font? {

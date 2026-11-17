@@ -14,7 +14,7 @@ enum Paper: String, CaseIterable, Identifiable {
         switch self {
         case .beige: return Color(hex: 0xF3E8D4)
         case .rose:  return Color(hex: 0xF7CFDF)
-        case .sky:   return Color(hex: 0xCFE4E7)
+        case .sky:   return Color(hex: 0xC9DEE4)
         case .lilac: return Color(hex: 0xE3DCF4)
         case .mint:  return Color(hex: 0xD9ECDD)
         case .white: return Color(hex: 0xFBFAF6)
@@ -34,8 +34,8 @@ enum Paper: String, CaseIterable, Identifiable {
 
 /// Ink is the same on every paper, since paper is always light.
 enum Ink {
-    static let main = Color(hex: 0x3A3330)
-    static let soft = Color(hex: 0x8B7F77)
+    static let main = Color(hex: 0x5A3933)   // warm brown marker
+    static let soft = Color(hex: 0x977A70)
 }
 
 extension Color {
@@ -70,6 +70,7 @@ func firstName(_ name: String) -> String {
 struct PaperSheet<Content: View>: View {
     let paper: Paper
     var padding: CGFloat = 14
+    var seed: UInt64 = 1
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -79,6 +80,7 @@ struct PaperSheet<Content: View>: View {
             .background {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(paper.color)
+                    .overlay(PaperGrain(seed: seed).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous)))
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .strokeBorder(Color.black.opacity(0.06), lineWidth: 1))
                     .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
@@ -89,7 +91,7 @@ struct PaperSheet<Content: View>: View {
     }
 }
 
-/// A finished letter: date, "Dear …," the words in handwriting, and the signature.
+/// A finished letter: doodles, "Dear …," in marker, the words in a clean sans, and the signature.
 struct LetterCard: View {
     @EnvironmentObject var store: NotesStore
     let note: Note
@@ -99,21 +101,153 @@ struct LetterCard: View {
         let mine = store.isMine(note)
         let to = firstName(mine ? store.partnerName : store.myName)
         let from = firstName(mine ? store.myName : note.senderName)
-        PaperSheet(paper: note.paper, padding: large ? 14 : 11) {
+        PaperSheet(paper: note.paper, padding: large ? 16 : 12, seed: note.id.seed) {
             VStack(alignment: .leading, spacing: large ? 6 : 4) {
                 Text(note.createdAt.formatted(.dateTime.day().month(.abbreviated).hour().minute()).lowercased())
-                    .font(Theme.mono(9)).foregroundStyle(Ink.soft)
+                    .font(Theme.sans(9.5)).foregroundStyle(Ink.soft)
                     .frame(maxWidth: .infinity, alignment: .trailing)
-                if large { Text("Dear \(to),").font(Theme.script(25)) }
+                if large {
+                    Doodles(seed: note.id.seed).frame(height: 42)
+                    Text("Dear \(to),").font(Theme.marker(30)).padding(.bottom, 2)
+                }
                 Text(note.text)
-                    .font(Theme.hand(large ? 17 : 15))
-                    .lineSpacing(2)
+                    .font(Theme.sans(large ? 13.5 : 12.5))
+                    .lineSpacing(3)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("— \(from)").font(Theme.script(large ? 22 : 18))
+                Text("love, \(from.lowercased())").font(Theme.marker(large ? 23 : 19))
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.top, 2)
             }
         }
+    }
+}
+
+extension UUID {
+    /// Stable number from the id, so a letter always gets the same doodles and grain.
+    var seed: UInt64 {
+        withUnsafeBytes(of: uuid) { $0.load(as: UInt64.self) } | 1
+    }
+}
+
+/// Tiny deterministic random numbers (SplitMix64).
+struct Rand {
+    var state: UInt64
+    mutating func next() -> Double {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return Double((z ^ (z >> 31)) >> 11) / Double(1 << 53)
+    }
+    mutating func range(_ a: Double, _ b: Double) -> Double { a + (b - a) * next() }
+}
+
+/// Soft speckle so the paper reads as paper, not a flat fill.
+struct PaperGrain: View {
+    let seed: UInt64
+    var body: some View {
+        Canvas { ctx, size in
+            var r = Rand(state: seed)
+            let count = Int(size.width * size.height / 70)
+            for _ in 0..<count {
+                let x = r.range(0, size.width), y = r.range(0, size.height)
+                let d = r.range(0.5, 1.5)
+                let dark = r.next() < 0.6
+                ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: d, height: d)),
+                         with: .color(dark ? .black.opacity(r.range(0.03, 0.08)) : .white.opacity(r.range(0.2, 0.45))))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+// MARK: - Doodles
+
+/// A band of hand-drawn doodles (clouds, sun, hearts, flowers, sparkles) in marker brown.
+struct Doodles: View {
+    let seed: UInt64
+
+    enum Kind: CaseIterable { case cloud, sun, heart, flower, sparkle }
+
+    var body: some View {
+        Canvas { ctx, size in
+            var r = Rand(state: seed &* 31)
+            let extra: [Kind] = [.heart, .flower, .sparkle]
+            var kinds: [Kind] = [.cloud, .cloud, .sun, extra[Int(r.next() * 3) % 3]]
+            // Shuffle the four into the four slots.
+            for i in stride(from: kinds.count - 1, to: 0, by: -1) {
+                kinds.swapAt(i, Int(r.next() * Double(i + 1)) % (i + 1))
+            }
+            let slots: [(Double, Double)] = [(0.10, 0.62), (0.37, 0.30), (0.63, 0.66), (0.88, 0.32)]
+            for (kind, slot) in zip(kinds, slots) {
+                let cx = (slot.0 + r.range(-0.04, 0.04)) * size.width
+                let cy = (slot.1 + r.range(-0.12, 0.12)) * size.height
+                let h: CGFloat = kind == .cloud ? r.range(21, 25) : r.range(17, 21)
+                let w: CGFloat = kind == .cloud ? h * 1.6 : h
+                var c = ctx
+                c.translateBy(x: cx, y: cy)
+                c.rotate(by: .degrees(r.range(-10, 10)))
+                let rect = CGRect(x: -w / 2, y: -h / 2, width: w, height: h)
+                c.stroke(Self.path(kind, in: rect), with: .color(Ink.main),
+                         style: StrokeStyle(lineWidth: 2.1, lineCap: .round, lineJoin: .round))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    static func path(_ kind: Kind, in r: CGRect) -> Path {
+        var p = Path()
+        let h = r.height
+        func pt(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: r.minX + x * h, y: r.minY + y * h) }
+        /// Arc over the top, from angle a down to b (degrees, maths convention, y up).
+        func arc(_ cx: Double, _ cy: Double, _ rad: Double, _ a: Double, _ b: Double, start: Bool = false) {
+            let steps = 14
+            for i in 0...steps {
+                let t = (a + (b - a) * Double(i) / Double(steps)) * .pi / 180
+                let q = pt(cx + rad * cos(t), cy - rad * sin(t))
+                if start && i == 0 { p.move(to: q) } else { p.addLine(to: q) }
+            }
+        }
+        switch kind {
+        case .cloud:
+            arc(0.38, 0.64, 0.28, 215, 80, start: true)
+            arc(0.80, 0.44, 0.36, 160, 20)
+            arc(1.22, 0.62, 0.28, 110, -35)
+            p.closeSubpath()
+            // a little curl inside, like the reference
+            arc(0.80, 0.62, 0.12, 180, 20, start: true)
+        case .sun:
+            let c = pt(0.5, 0.5)
+            p.addEllipse(in: CGRect(x: c.x - h * 0.2, y: c.y - h * 0.2, width: h * 0.4, height: h * 0.4))
+            for i in 0..<8 {
+                let t = Double(i) * .pi / 4 + 0.2
+                p.move(to: CGPoint(x: c.x + cos(t) * h * 0.33, y: c.y + sin(t) * h * 0.33))
+                p.addLine(to: CGPoint(x: c.x + cos(t) * h * 0.5, y: c.y + sin(t) * h * 0.5))
+            }
+        case .heart:
+            p.move(to: pt(0.5, 0.92))
+            p.addCurve(to: pt(0.06, 0.34), control1: pt(0.25, 0.75), control2: pt(0.0, 0.58))
+            p.addCurve(to: pt(0.5, 0.26), control1: pt(0.12, 0.04), control2: pt(0.42, 0.04))
+            p.addCurve(to: pt(0.94, 0.34), control1: pt(0.58, 0.04), control2: pt(0.88, 0.04))
+            p.addCurve(to: pt(0.5, 0.92), control1: pt(1.0, 0.58), control2: pt(0.75, 0.75))
+        case .flower:
+            let c = pt(0.5, 0.5)
+            for i in 0..<5 {
+                let t = Double(i) * 2 * .pi / 5 - .pi / 2
+                let pc = CGPoint(x: c.x + cos(t) * h * 0.27, y: c.y + sin(t) * h * 0.27)
+                p.addEllipse(in: CGRect(x: pc.x - h * 0.17, y: pc.y - h * 0.17, width: h * 0.34, height: h * 0.34))
+            }
+            p.addEllipse(in: CGRect(x: c.x - h * 0.08, y: c.y - h * 0.08, width: h * 0.16, height: h * 0.16))
+        case .sparkle:
+            let c = pt(0.5, 0.5)
+            p.move(to: pt(0.5, 0.0))
+            p.addQuadCurve(to: pt(1.0, 0.5), control: c)
+            p.addQuadCurve(to: pt(0.5, 1.0), control: c)
+            p.addQuadCurve(to: pt(0.0, 0.5), control: c)
+            p.addQuadCurve(to: pt(0.5, 0.0), control: c)
+        }
+        return p
     }
 }
 
@@ -123,6 +257,7 @@ struct LetterComposer: View {
     @EnvironmentObject var store: NotesStore
     @State private var draft = ""
     @State private var paper = Paper.saved
+    @State private var doodleSeed = UInt64.random(in: 1...UInt64.max)
     @State private var sending = false
     @State private var sent = false
     @State private var sentLabel = "Sent"
@@ -132,21 +267,24 @@ struct LetterComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            PaperSheet(paper: paper) {
-                VStack(alignment: .leading, spacing: 4) {
+            PaperSheet(paper: paper, padding: 16, seed: doodleSeed) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(Date.now.formatted(.dateTime.day().month(.abbreviated)).lowercased())
-                        .font(Theme.mono(9)).foregroundStyle(Ink.soft)
+                        .font(Theme.sans(9.5)).foregroundStyle(Ink.soft)
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("Dear \(firstName(store.partnerName)),").font(Theme.script(25))
+                    Doodles(seed: doodleSeed).frame(height: 42)
+                    Text("Dear \(firstName(store.partnerName)),").font(Theme.marker(30)).padding(.bottom, 2)
                     TextField("", text: $draft,
                               prompt: Text("write your letter…").foregroundStyle(Ink.soft), axis: .vertical)
                         .textFieldStyle(.plain)
-                        .font(Theme.hand(17))
+                        .font(Theme.sans(13.5))
+                        .lineSpacing(3)
                         .lineLimit(3...8)
                         .focused($focused)
                         .onSubmit(send)
-                    Text("— \(firstName(store.myName))").font(Theme.script(22))
+                    Text("love, \(firstName(store.myName).lowercased())").font(Theme.marker(23))
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.top, 2)
                 }
             }
             .animation(.easeOut(duration: 0.2), value: paper)
@@ -191,6 +329,7 @@ struct LetterComposer: View {
         Task {
             if await store.send(body, replyTo: nil, openAfter: false) {
                 draft = ""
+                doodleSeed = UInt64.random(in: 1...UInt64.max)
                 flash("Sent")
             }
             sending = false
@@ -306,8 +445,8 @@ struct EnvelopeOpening: View {
                     .frame(width: w, height: h)
                 PaperSheet(paper: note.paper, padding: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Dear \(firstName(store.myName)),").font(Theme.script(16))
-                        Text(note.text).font(Theme.hand(11)).lineLimit(2)
+                        Text("Dear \(firstName(store.myName)),").font(Theme.marker(17))
+                        Text(note.text).font(Theme.sans(9.5)).lineLimit(2)
                     }
                 }
                 .frame(width: w - 20, height: h - 14)

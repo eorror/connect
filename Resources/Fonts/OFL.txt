@@ -94,6 +94,4 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ----
 Also bundled under the same SIL Open Font License 1.1:
-Pinyon Script: Copyright 2011 Nicole Fally (https://github.com/google/fonts/tree/main/ofl/pinyonscript)
-Mynerve: Copyright 2022 The Mynerve Project Authors (https://github.com/google/fonts/tree/main/ofl/mynerve)
-Courier Prime: Copyright 2015 The Courier Prime Project Authors (https://github.com/google/fonts/tree/main/ofl/courierprime)
+Dancing Script: Copyright 2016 The Dancing Script Project Authors (https://github.com/google/fonts/tree/main/ofl/dancingscript)

@@ -260,11 +260,11 @@ struct NoteCardRow: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline) {
                 Text(mine ? "To \(firstName(store.partnerName))" : "From \(firstName(note.senderName))")
-                    .font(Theme.script(20))
+                    .font(Theme.marker(20))
                 if unread { Circle().fill(Color(hex: 0xE5484D)).frame(width: 6, height: 6) }
                 Spacer()
                 Text(note.createdAt.formatted(.relative(presentation: .named)).lowercased())
-                    .font(Theme.mono(9)).foregroundStyle(letter ? Ink.soft : Theme.ink3)
+                    .font(Theme.sans(9.5)).foregroundStyle(letter ? Ink.soft : Theme.ink3)
             }
             if let e = note.emote {
                 HStack(spacing: 10) {
@@ -272,12 +272,12 @@ struct NoteCardRow: View {
                     Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)").font(Theme.serif(15))
                 }
             } else {
-                Text(note.text).font(Theme.hand(15)).lineLimit(2)
+                Text(note.text).font(Theme.sans(12.5)).lineLimit(2)
             }
             if !thread.replies.isEmpty {
                 Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
                       systemImage: "arrowshape.turn.up.left")
-                    .font(Theme.mono(9)).foregroundStyle(letter ? Ink.soft : Theme.ink2)
+                    .font(Theme.sans(9.5)).foregroundStyle(letter ? Ink.soft : Theme.ink2)
             }
         }
         .padding(.horizontal, 11).padding(.vertical, 8)
@@ -461,7 +461,7 @@ struct MessageField: View {
         TextField(placeholder, text: $text,
                   prompt: Text(placeholder).foregroundStyle(Theme.ink3), axis: .vertical)
             .textFieldStyle(.plain)
-            .font(hand ? Theme.hand(16) : serif ? Theme.serif(16) : Theme.sans(13))
+            .font(hand ? Theme.sans(13) : serif ? Theme.serif(16) : Theme.sans(13))
             .lineLimit(serif ? 2...5 : 1...5)
             .focused(focused)
             .onSubmit(onSend)
