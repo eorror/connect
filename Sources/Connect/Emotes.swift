@@ -57,28 +57,30 @@ extension Note {
     var emote: Emote? { Emote(body: body) }
 }
 
-// MARK: - Full-screen animation
+// MARK: - Burst animation
 
-/// A click-through window over the whole screen that rains the emote for a few seconds.
+/// A small click-through window over the note that the emote bursts out of.
 @MainActor
 final class EmoteOverlay {
     private var window: NSWindow?
     private var closeWork: DispatchWorkItem?
+    private let side: CGFloat = 640
 
-    func play(_ emote: Emote) {
-        guard let screen = NSScreen.main else { return }
+    /// `point` is the burst centre in screen coordinates (the middle of the note).
+    func play(_ emote: Emote, at point: NSPoint) {
         closeWork?.cancel()
         window?.orderOut(nil)
 
-        let w = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let frame = NSRect(x: point.x - side / 2, y: point.y - side / 2, width: side, height: side)
+        let w = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         w.isOpaque = false
         w.backgroundColor = .clear
         w.hasShadow = false
         w.ignoresMouseEvents = true
         w.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        w.contentView = NSHostingView(rootView: EmoteRain(emote: emote, size: screen.frame.size))
-        w.setFrame(screen.frame, display: true)
+        w.contentView = NSHostingView(rootView: EmoteBurst(emote: emote, side: side))
+        w.setFrame(frame, display: true)
         w.orderFrontRegardless()
         window = w
 
@@ -87,27 +89,26 @@ final class EmoteOverlay {
             self?.window = nil
         }
         closeWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + EmoteRain.length + 0.2, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + EmoteBurst.length + 0.15, execute: work)
     }
 }
 
-/// Emoji drifting down from the top with a little sway and spin, fading at the end.
-struct EmoteRain: View {
-    static let length: Double = 4.2
+/// Emoji popping out of the middle in every direction (mostly up), then falling and fading.
+struct EmoteBurst: View {
+    static let length: Double = 1.9
 
     let emote: Emote
-    let size: CGSize
+    let side: CGFloat
     @State private var start = Date()
-    @State private var drops: [Drop] = []
+    @State private var bits: [Bit] = []
 
-    struct Drop {
+    struct Bit {
         let symbol: String
-        let x: CGFloat
+        let vx: CGFloat
+        let vy: CGFloat
         let delay: Double
-        let fall: Double
+        let life: Double
         let fontSize: CGFloat
-        let sway: CGFloat
-        let swaySpeed: Double
         let spin: Double
     }
 
@@ -115,33 +116,41 @@ struct EmoteRain: View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSince(start)
             Canvas { ctx, canvas in
-                for d in drops {
-                    let p = (t - d.delay) / d.fall
-                    guard p > 0, p < 1 else { continue }
-                    let y = -60 + (canvas.height + 120) * CGFloat(p)
-                    let x = d.x + sin((t - d.delay) * d.swaySpeed) * d.sway
-                    let fade = p > 0.75 ? (1 - p) / 0.25 : min(1, p / 0.08)
+                let c0 = CGPoint(x: canvas.width / 2, y: canvas.height / 2)
+                let gravity: CGFloat = 620
+                for b in bits {
+                    let age = t - b.delay
+                    guard age > 0, age < b.life else { continue }
+                    let a = CGFloat(age)
+                    let x = c0.x + b.vx * a
+                    let y = c0.y + b.vy * a + 0.5 * gravity * a * a
+                    let p = age / b.life
+                    let pop = min(1, age / 0.12)              // grows in quickly
+                    let fade = p > 0.6 ? (1 - p) / 0.4 : 1    // fades out at the end
                     var c = ctx
                     c.opacity = fade
                     c.translateBy(x: x, y: y)
-                    c.rotate(by: .degrees(d.spin * (t - d.delay)))
-                    c.draw(Text(d.symbol).font(.system(size: d.fontSize)), at: .zero)
+                    c.rotate(by: .degrees(b.spin * age))
+                    c.scaleBy(x: 0.4 + 0.6 * pop, y: 0.4 + 0.6 * pop)
+                    c.draw(Text(b.symbol).font(.system(size: b.fontSize)), at: .zero)
                 }
             }
         }
-        .frame(width: size.width, height: size.height)
+        .frame(width: side, height: side)
         .allowsHitTesting(false)
         .onAppear {
             start = Date()
-            drops = (0..<70).map { _ in
-                Drop(symbol: emote.particles.randomElement()!,
-                     x: .random(in: 0...size.width),
-                     delay: .random(in: 0...1.6),
-                     fall: .random(in: 2.0...2.6),
-                     fontSize: .random(in: 26...54),
-                     sway: .random(in: 10...40),
-                     swaySpeed: .random(in: 1.5...3.5),
-                     spin: .random(in: -40...40))
+            bits = (0..<26).map { _ in
+                // Mostly upward: angle around straight up (-90°), spread ±80°.
+                let angle = (-90 + Double.random(in: -80...80)) * .pi / 180
+                let speed = CGFloat.random(in: 220...440)
+                return Bit(symbol: emote.particles.randomElement()!,
+                           vx: cos(angle) * speed,
+                           vy: sin(angle) * speed,
+                           delay: .random(in: 0...0.12),
+                           life: .random(in: 1.2...1.75),
+                           fontSize: .random(in: 18...32),
+                           spin: .random(in: -120...120))
             }
         }
     }
@@ -153,7 +162,7 @@ struct EmoteRain: View {
 struct EmoteBar: View {
     let onSend: (Emote) -> Void
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(Emote.allCases) { e in EmoteButton(emote: e) { onSend(e) } }
         }
     }
@@ -167,8 +176,8 @@ private struct EmoteButton: View {
     var body: some View {
         Button(action: action) {
             Text(emote.symbol)
-                .font(.system(size: 18))
-                .frame(width: 34, height: 30)
+                .font(.system(size: 15))
+                .frame(width: 30, height: 24)
                 .background(hovering ? Theme.glass2 : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .scaleEffect(hovering ? 1.15 : 1)
         }

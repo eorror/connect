@@ -26,7 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
         panel = SidePanelController(store: store, updater: updater.updater)
         panel.state.quit = { NSApp.terminate(nil) }
-        panel.state.playEmote = { [weak self] e in self?.emotes.play(e) }
+        panel.state.playEmote = { [weak self] e in
+            guard let self else { return }
+            self.emotes.play(e, at: self.panel.burstPoint)
+        }
         setupStatusItem()
 
         store.onIncoming = { [weak self] _ in self?.panel.noteArrived() }
@@ -48,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         store.start()
         // For checking the animation without sending anything: CONNECT_PLAY_EMOTE=flowers
         if let name = ProcessInfo.processInfo.environment["CONNECT_PLAY_EMOTE"], let e = Emote(rawValue: name) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.emotes.play(e) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.panel.open(); self.panel.state.playEmote(e) }
         }
         if store.isConfigured { panel.showTab() } else { panel.open() }
     }

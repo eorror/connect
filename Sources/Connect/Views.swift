@@ -128,6 +128,11 @@ struct PanelView: View {
         .onChange(of: store.selectedThreadID) { _, id in
             if let id { store.markThreadRead(id) }
         }
+        .onPreferenceChange(ContentHeight.self) { h in
+            // header (34) + divider (1)
+            if ProcessInfo.processInfo.environment["CONNECT_DEBUG"] != nil { FileHandle.standardError.write("fit \(h)\n".data(using: .utf8)!) }
+            DispatchQueue.main.async { panel.fitHeight = h > 0 ? h + 35 : 0 }
+        }
     }
 
     private var canGoBack: Bool {
@@ -146,7 +151,7 @@ struct PanelView: View {
                     store.selectedThreadID = nil
                 }
             }
-            Text(title).font(Theme.serif(19, italic: screen.isList))
+            Text(title).font(Theme.serif(16, italic: screen.isList))
                 .lineLimit(1)
             Spacer()
             if store.lastError != nil {
@@ -174,8 +179,8 @@ struct PanelView: View {
             }
             IconButton("xmark", help: "Close (Esc)") { panel.collapse() }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 44)
+        .padding(.horizontal, 8)
+        .frame(height: 34)
     }
 
     private var title: String {
@@ -206,9 +211,9 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Theme.ink2)
-                .frame(width: 28, height: 28)
+                .frame(width: 22, height: 22)
                 .background(hovering ? Theme.glass2 : .clear, in: Circle())
         }
         .buttonStyle(.plain)
@@ -225,21 +230,23 @@ struct NotesList: View {
 
     var body: some View {
         if store.threads.isEmpty {
-            VStack(spacing: 10) {
-                Text("No notes yet").font(Theme.serif(22))
-                Text("Leave the first one.").font(Theme.sans(13)).foregroundStyle(Theme.ink3)
-                Button("Write a note") { store.composing = true }.buttonStyle(.pill).padding(.top, 4)
+            VStack(spacing: 6) {
+                Text("No notes yet").font(Theme.serif(17))
+                Button("Write a note") { store.composing = true }.buttonStyle(.pill).padding(.top, 2)
             }
+            .padding(16)
+            .reportHeight()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVStack(spacing: 10) {
+                VStack(spacing: 6) {
                     ForEach(store.threads) { thread in
                         NoteCardRow(thread: thread)
                             .onTapGesture { store.selectedThreadID = thread.id }
                     }
                 }
-                .padding(12)
+                .padding(8)
+                .reportHeight()
             }
         }
     }
@@ -254,9 +261,9 @@ struct NoteCardRow: View {
         let note = thread.root
         let mine = store.isMine(note)
         let unread = store.unreadCount(in: thread) > 0
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text(mine ? "You" : note.senderName).font(Theme.sans(12, .semibold))
+                Text(mine ? "You" : note.senderName).font(Theme.sans(11, .semibold))
                 if unread { Circle().fill(Theme.accent).frame(width: 6, height: 6) }
                 Spacer()
                 Text(note.createdAt, format: .relative(presentation: .named))
@@ -264,25 +271,25 @@ struct NoteCardRow: View {
             }
             if let e = note.emote {
                 HStack(spacing: 10) {
-                    Text(e.symbol).font(.system(size: 30))
-                    Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)").font(Theme.serif(18))
+                    Text(e.symbol).font(.system(size: 20))
+                    Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)").font(Theme.serif(15))
                 }
             } else {
-                Text(note.body).font(Theme.serif(18)).lineLimit(4).lineSpacing(1)
+                Text(note.body).font(Theme.serif(15)).lineLimit(3)
             }
             if !thread.replies.isEmpty {
                 Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
                       systemImage: "arrowshape.turn.up.left")
-                    .font(Theme.sans(11, .medium)).foregroundStyle(Theme.ink2)
+                    .font(Theme.sans(10, .medium)).foregroundStyle(Theme.ink2)
             }
         }
-        .padding(14)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(mine ? Theme.mineTint : Theme.theirTint)
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
-                .shadow(color: Theme.shadow, radius: hovering ? 12 : 6, y: hovering ? 5 : 3)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                .shadow(color: Theme.shadow, radius: hovering ? 8 : 4, y: 2)
         }
         .scaleEffect(hovering ? 1.01 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 16))
@@ -305,32 +312,36 @@ struct ThreadView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 6) {
                         NoteCard(note: thread.root, large: true)
                         if !thread.replies.isEmpty {
                             HStack(spacing: 6) {
-                                Rectangle().fill(Theme.line).frame(width: 2, height: 14)
-                                Text("Replies").font(Theme.sans(11, .semibold)).foregroundStyle(Theme.ink3)
+                                Rectangle().fill(Theme.line).frame(width: 2, height: 10)
+                                Text("Replies").font(Theme.sans(10, .semibold)).foregroundStyle(Theme.ink3)
                             }
-                            .padding(.leading, 10)
+                            .padding(.leading, 8)
                             ForEach(thread.replies) { reply in
                                 NoteCard(note: reply, large: false).id(reply.id)
-                                    .padding(.leading, 14)
+                                    .padding(.leading, 10)
                             }
                         }
                         if let mine = thread.all.last(where: { store.isMine($0) }), mine.readAt != nil {
-                            Text("Seen").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                            Text("Seen").font(Theme.sans(10)).foregroundStyle(Theme.ink3)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
-                    .padding(14)
+                    .padding(8)
+                    .reportHeight()
                 }
                 .onChange(of: thread.replies.count) { _, _ in
                     withAnimation { proxy.scrollTo(thread.last.id, anchor: .bottom) }
                 }
             }
-            Rectangle().fill(Theme.line).frame(height: 1)
-            bottom
+            VStack(spacing: 0) {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                bottom
+            }
+            .reportHeight()
         }
     }
 
@@ -339,18 +350,18 @@ struct ThreadView: View {
     @ViewBuilder private var bottom: some View {
         if replying {
             VStack(alignment: .leading, spacing: 8) {
-                MessageField(text: $draft, placeholder: "Reply to this note…", focused: $focused) { send() }
+                MessageField(text: $draft, placeholder: "Reply…", focused: $focused) { send() }
                 HStack {
-                    Text("↩ send · ⌥↩ new line").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                    Text("↩ send · ⌥↩ new line").font(Theme.sans(10)).foregroundStyle(Theme.ink3)
                     Spacer()
                     Button("Cancel") { replying = false; draft = "" }
-                        .buttonStyle(.plain).font(Theme.sans(12, .medium)).foregroundStyle(Theme.ink2)
+                        .buttonStyle(.plain).font(Theme.sans(11, .medium)).foregroundStyle(Theme.ink2)
                 }
             }
-            .padding(12)
+            .padding(8)
             .onAppear { focused = true }
         } else {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Button { replying = true } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
                     .buttonStyle(.pill)
                 Button {
@@ -360,7 +371,7 @@ struct ThreadView: View {
                     .buttonStyle(.pillSecondary)
                 Spacer()
             }
-            .padding(12)
+            .padding(8)
         }
     }
 
@@ -384,14 +395,14 @@ struct NoteCard: View {
 
     var body: some View {
         let mine = store.isMine(note)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("\(mine ? "You" : note.senderName) · \(note.createdAt.formatted(.relative(presentation: .named)))")
-                .font(Theme.sans(11, .medium)).foregroundStyle(Theme.ink3)
+                .font(Theme.sans(10, .medium)).foregroundStyle(Theme.ink3)
             if let e = note.emote {
                 HStack(spacing: 12) {
-                    Text(e.symbol).font(.system(size: large ? 44 : 30))
+                    Text(e.symbol).font(.system(size: large ? 28 : 20))
                     Text(mine ? "You sent \(e.phrase)" : "Sent you \(e.phrase)")
-                        .font(large ? Theme.serif(20) : Theme.serif(17))
+                        .font(large ? Theme.serif(16) : Theme.serif(14))
                     Spacer()
                     Button { panel.playEmote(e) } label: { Image(systemName: "play.fill") }
                         .buttonStyle(.pillSecondary)
@@ -399,18 +410,18 @@ struct NoteCard: View {
                 }
             } else {
                 Text(note.body)
-                    .font(large ? Theme.serif(22) : Theme.serif(17))
-                    .lineSpacing(2)
+                    .font(large ? Theme.serif(17) : Theme.serif(15))
+                    .lineSpacing(1)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(large ? 18 : 14)
+        .padding(large ? 12 : 9)
         .background {
-            RoundedRectangle(cornerRadius: large ? 18 : 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(mine ? Theme.mineTint : Theme.theirTint)
-                .overlay(RoundedRectangle(cornerRadius: large ? 18 : 14, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
-                .shadow(color: Theme.shadow, radius: 8, y: 3)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                .shadow(color: Theme.shadow, radius: 4, y: 2)
         }
     }
 }
@@ -427,13 +438,13 @@ struct MessageField: View {
         TextField(placeholder, text: $text,
                   prompt: Text(placeholder).foregroundStyle(Theme.ink3), axis: .vertical)
             .textFieldStyle(.plain)
-            .font(serif ? Theme.serif(18) : Theme.sans(14))
-            .lineLimit(serif ? 3...5 : 1...6)
+            .font(serif ? Theme.serif(16) : Theme.sans(13))
+            .lineLimit(serif ? 2...5 : 1...5)
             .focused(focused)
             .onSubmit(onSend)
-            .padding(12)
-            .background(Theme.solid, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+            .padding(9)
+            .background(Theme.solid, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
     }
 }
 
@@ -448,14 +459,14 @@ struct ComposeView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
             MessageField(text: $draft, placeholder: "Write something nice…", serif: true, focused: $focused) { send() }
             HStack {
                 if sent {
-                    Label(sentLabel, systemImage: "checkmark").font(Theme.sans(12, .semibold)).foregroundStyle(Theme.ink2)
+                    Label(sentLabel, systemImage: "checkmark").font(Theme.sans(11, .semibold)).foregroundStyle(Theme.ink2)
                         .transition(.opacity)
                 } else {
-                    Text("↩ send · ⌥↩ new line").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                    Text("↩ send").font(Theme.sans(10)).foregroundStyle(Theme.ink3)
                 }
                 Spacer()
                 Button(sending ? "Sending…" : "Send") { send() }
@@ -467,7 +478,9 @@ struct ComposeView: View {
                 .disabled(sending)
                 .frame(maxWidth: .infinity)
         }
-        .padding(14)
+        .padding(8)
+        .fixedSize(horizontal: false, vertical: true)
+        .reportHeight()
         .frame(maxHeight: .infinity, alignment: .top)
         .onAppear { focused = true }
     }
@@ -729,5 +742,20 @@ struct ThemedField: View {
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(Theme.solid, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+    }
+}
+
+// MARK: - Fitting the panel to its content
+
+/// Heights of the measured parts of the current screen, added together.
+struct ContentHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value += nextValue() }
+}
+
+extension View {
+    /// Reports this view's natural height so the panel can size itself to fit.
+    func reportHeight() -> some View {
+        background(GeometryReader { g in Color.clear.preference(key: ContentHeight.self, value: g.size.height) })
     }
 }

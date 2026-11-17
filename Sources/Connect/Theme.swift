@@ -108,10 +108,10 @@ struct PillButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(Theme.sans(13, .semibold))
+            .font(Theme.sans(12, .semibold))
             .foregroundStyle(primary ? Theme.onInk : Theme.ink)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
             .background {
                 Capsule().fill(primary ? Theme.ink : Theme.glass2)
                     .overlay(Capsule().strokeBorder(primary ? .clear : Theme.line, lineWidth: 1))

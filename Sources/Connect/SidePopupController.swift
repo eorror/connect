@@ -7,6 +7,8 @@ import SwiftUI
 @MainActor
 final class PanelState: ObservableObject {
     @Published var expanded = false
+    /// Natural height of what's on screen, so the panel can hug it.
+    @Published var fitHeight: CGFloat = 0
     var open: () -> Void = {}
     var collapse: () -> Void = {}
     var quit: () -> Void = {}
@@ -69,9 +71,11 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = false   // SwiftUI draws the edges so the corners stay clean
         panel.delegate = self
-        panel.contentView = NSHostingView(rootView: PanelRoot()
+        let host = NSHostingView(rootView: PanelRoot()
             .environmentObject(store)
             .environmentObject(state))
+        host.sizingOptions = []   // the controller decides the size; don't let SwiftUI push it bigger
+        panel.contentView = host
 
         state.open = { [weak self] in self?.open() }
         state.collapse = { [weak self] in self?.collapse() }
@@ -89,6 +93,15 @@ final class SidePanelController: NSObject, NSWindowDelegate {
                 if target != self.panel.frame { self.slide(to: target, duration: 0.3) }
             }
             .store(in: &cancellables)
+        state.$fitHeight
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, self.mode == .open else { return }
+                let target = self.openFrame
+                if target != self.panel.frame { self.slide(to: target, duration: 0.25) }
+            }
+            .store(in: &cancellables)
 
         // Any click or keypress inside the panel keeps it open.
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] e in
@@ -98,6 +111,12 @@ final class SidePanelController: NSObject, NSWindowDelegate {
     }
 
     var isOpen: Bool { mode == .open }
+
+    /// Middle of the note on screen, where emotes burst out of.
+    var burstPoint: NSPoint {
+        let f = mode == .open ? openFrame : panel.frame
+        return NSPoint(x: f.midX, y: f.midY)
+    }
 
     // MARK: Geometry
 
@@ -116,13 +135,13 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         return NSRect(x: x, y: area.maxY - s.height, width: s.width, height: s.height)
     }
 
-    /// Small by default: just a note card to write in. Bigger only for reading or settings.
+    /// As small as it can be: notes, the list and the writing card hug their content
+    /// (up to a cap, then they scroll). Setup and settings have fixed sizes.
     private var openSize: NSSize {
-        if !store.isConfigured || store.showSetup { return NSSize(width: 340, height: 520) }
-        if store.showSettings { return NSSize(width: 320, height: 470) }
-        if store.selectedThreadID != nil { return NSSize(width: 300, height: 420) }
-        if store.composing { return NSSize(width: 290, height: 256) }
-        return NSSize(width: 300, height: 420)
+        if !store.isConfigured || store.showSetup { return NSSize(width: 320, height: 500) }
+        if store.showSettings { return NSSize(width: 290, height: 410) }
+        let h = state.fitHeight > 0 ? min(max(state.fitHeight, 100), 440) : 200
+        return NSSize(width: 270, height: ceil(h))
     }
 
     private var openFrame: NSRect {
@@ -193,7 +212,10 @@ final class SidePanelController: NSObject, NSWindowDelegate {
             }
         }
         if self.pinned { takeFocus() }
-        if let emoteToPlay { state.playEmote(emoteToPlay) }
+        if let emoteToPlay {
+            // Let the note settle in first, then burst out of it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.state.playEmote(emoteToPlay) }
+        }
     }
 
     func toggle() { mode == .open ? collapse() : open() }
@@ -244,6 +266,7 @@ final class SidePanelController: NSObject, NSWindowDelegate {
     }
 
     private func slide(to frame: NSRect, duration: Double) {
+        if ProcessInfo.processInfo.environment["CONNECT_DEBUG"] != nil { FileHandle.standardError.write("slide \(frame.height) fit \(state.fitHeight)\n".data(using: .utf8)!) }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = duration
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
