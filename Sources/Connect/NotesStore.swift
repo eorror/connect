@@ -140,7 +140,7 @@ final class NotesStore: ObservableObject {
     }
 
     @discardableResult
-    func send(_ text: String, replyTo: UUID?) async -> Bool {
+    func send(_ text: String, replyTo: UUID?, openAfter: Bool = true) async -> Bool {
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, isConfigured else { return false }
         let new = NewNote(id: UUID(), senderEmail: myEmail, senderName: myName,
@@ -153,8 +153,10 @@ final class NotesStore: ObservableObject {
         }
         notes.append(Note(id: new.id, createdAt: Date(), senderEmail: new.senderEmail, senderName: new.senderName,
                           recipientEmail: new.recipientEmail, body: body, replyTo: replyTo, readAt: nil))
-        composing = false
-        selectedThreadID = replyTo ?? new.id
+        if openAfter {
+            composing = false
+            selectedThreadID = replyTo ?? new.id
+        }
         lastError = nil
         Task { await refresh() }
         return true

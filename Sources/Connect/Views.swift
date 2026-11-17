@@ -33,8 +33,9 @@ struct PanelRoot: View {
     }
 }
 
-/// The tab that always pokes out of the right edge. Slim when there's nothing new; shows her
-/// initial and a count when a note is waiting. Hover to open, drag to move it up or down.
+/// The tab that hangs down from the top edge near the right corner. Slim when there's nothing
+/// new; shows her initial and a count when a note is waiting. Hover to open, drag to slide it
+/// along the top.
 struct NoteTab: View {
     @EnvironmentObject var store: NotesStore
     @EnvironmentObject var panel: PanelState
@@ -43,14 +44,14 @@ struct NoteTab: View {
     var body: some View {
         let unread = store.unreadIncoming.count
         let radius: CGFloat = unread > 0 ? 18 : 7
-        let shape = UnevenRoundedRectangle(topLeadingRadius: radius, bottomLeadingRadius: radius,
-                                           bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous)
-        ZStack(alignment: .trailing) {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: radius,
+                                           bottomTrailingRadius: radius, topTrailingRadius: 0, style: .continuous)
+        ZStack(alignment: .top) {
             // Invisible but hoverable: the mouse only has to get close.
             Color.white.opacity(0.001)
             Group {
                 if unread > 0 {
-                    ZStack(alignment: .topLeading) {
+                    ZStack(alignment: .topTrailing) {
                         Circle().fill(Theme.theirTint)
                             .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
                             .overlay(Text(String(store.partnerName.prefix(1)).uppercased()).font(Theme.sans(15, .semibold)))
@@ -60,13 +61,13 @@ struct NoteTab: View {
                             .foregroundStyle(Theme.onInk)
                             .frame(minWidth: 16, minHeight: 16)
                             .background(Theme.ink, in: Capsule())
-                            .offset(x: 20, y: -5)
+                            .offset(x: 6, y: -3)
                     }
-                    .padding(.leading, 11)
-                    .frame(width: hovering ? 58 : 54, height: 50, alignment: .leading)
+                    .padding(.bottom, 9)
+                    .frame(width: 50, height: hovering ? 54 : 50, alignment: .bottom)
                 } else {
-                    Capsule().fill(Theme.ink3.opacity(0.5)).frame(width: 3, height: 26)
-                        .frame(width: hovering ? 16 : 11, height: 64)
+                    Capsule().fill(Theme.ink3.opacity(0.5)).frame(width: 26, height: 3)
+                        .frame(width: 64, height: hovering ? 15 : 10)
                 }
             }
             .background {
@@ -131,7 +132,7 @@ struct PanelView: View {
 
     private var canGoBack: Bool {
         switch screen {
-        case .settings, .compose, .thread: return true
+        case .settings, .thread: return true
         default: return false
         }
     }
@@ -145,7 +146,7 @@ struct PanelView: View {
                     store.selectedThreadID = nil
                 }
             }
-            Text(title).font(Theme.serif(22, italic: screen.isList))
+            Text(title).font(Theme.serif(19, italic: screen.isList))
                 .lineLimit(1)
             Spacer()
             if store.lastError != nil {
@@ -153,6 +154,12 @@ struct PanelView: View {
                     .help(store.lastError ?? "")
             }
             if store.isConfigured && !store.showSetup {
+                if screen.isCompose {
+                    IconButton("tray.full", help: "All notes") {
+                        store.composing = false
+                        store.selectedThreadID = nil
+                    }
+                }
                 if screen.isList {
                     IconButton("square.and.pencil", help: "New note (⌘N)") {
                         store.selectedThreadID = nil
@@ -167,8 +174,8 @@ struct PanelView: View {
             }
             IconButton("xmark", help: "Close (Esc)") { panel.collapse() }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 52)
+        .padding(.horizontal, 12)
+        .frame(height: 44)
     }
 
     private var title: String {
@@ -176,7 +183,7 @@ struct PanelView: View {
         case .setup: return "Welcome"
         case .settings: return "Settings"
         case .list: return "Notes"
-        case .compose: return "New note"
+        case .compose: return "A note for \(store.partnerName.split(separator: " ").first.map(String.init) ?? "")"
         case .thread(let t): return store.isMine(t.root) ? "Your note" : "From \(t.root.senderName)"
         }
     }
@@ -184,6 +191,7 @@ struct PanelView: View {
 
 private extension PanelView.Screen {
     var isList: Bool { if case .list = self { return true } else { return false } }
+    var isCompose: Bool { if case .compose = self { return true } else { return false } }
 }
 
 struct IconButton: View {
@@ -399,8 +407,8 @@ struct MessageField: View {
         TextField(placeholder, text: $text,
                   prompt: Text(placeholder).foregroundStyle(Theme.ink3), axis: .vertical)
             .textFieldStyle(.plain)
-            .font(serif ? Theme.serif(19) : Theme.sans(14))
-            .lineLimit(serif ? 4...12 : 1...6)
+            .font(serif ? Theme.serif(18) : Theme.sans(14))
+            .lineLimit(serif ? 3...5 : 1...6)
             .focused(focused)
             .onSubmit(onSend)
             .padding(12)
@@ -415,22 +423,27 @@ struct ComposeView: View {
     @EnvironmentObject var store: NotesStore
     @State private var draft = ""
     @State private var sending = false
+    @State private var sent = false
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("To \(store.partnerName)").font(Theme.sans(12, .semibold)).foregroundStyle(Theme.ink3)
             MessageField(text: $draft, placeholder: "Write something nice…", serif: true, focused: $focused) { send() }
             HStack {
-                Text("↩ send · ⌥↩ new line").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                if sent {
+                    Label("Sent", systemImage: "checkmark").font(Theme.sans(12, .semibold)).foregroundStyle(Theme.ink2)
+                        .transition(.opacity)
+                } else {
+                    Text("↩ send · ⌥↩ new line").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                }
                 Spacer()
                 Button(sending ? "Sending…" : "Send") { send() }
                     .buttonStyle(.pill)
                     .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            Spacer()
         }
-        .padding(16)
+        .padding(14)
+        .frame(maxHeight: .infinity, alignment: .top)
         .onAppear { focused = true }
     }
 
@@ -438,7 +451,13 @@ struct ComposeView: View {
         guard !sending, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         sending = true
         Task {
-            if await store.send(draft, replyTo: nil) { draft = "" }
+            // Stay on this little card after sending, ready for the next one.
+            if await store.send(draft, replyTo: nil, openAfter: false) {
+                draft = ""
+                withAnimation { sent = true }
+                try? await Task.sleep(for: .seconds(2))
+                withAnimation { sent = false }
+            }
             sending = false
         }
     }

@@ -13,7 +13,7 @@ final class PanelState: ObservableObject {
     /// Mouse entered/left the edge tab or the open panel.
     var tabHover: (Bool) -> Void = { _ in }
     var panelHover: (Bool) -> Void = { _ in }
-    /// Dragging the tab up and down the edge: began / moved / ended.
+    /// Dragging the tab along the top edge: began / moved / ended.
     var tabDragChanged: () -> Void = {}
     var tabDragEnded: () -> Void = {}
     let updater: SPUUpdater
@@ -37,20 +37,20 @@ final class SidePanelController: NSObject, NSWindowDelegate {
     let state: PanelState
     private let store: NotesStore
     private let panel: KeyPanel
-    private let openSize = NSSize(width: 360, height: 560)
 
     /// Opened by hovering and not clicked yet, so it closes again when the mouse leaves.
     private var pinned = false
     private var hoverOpenWork: DispatchWorkItem?
     private var leaveWork: DispatchWorkItem?
     private var monitor: Any?
+    private var cancellables = Set<AnyCancellable>()
 
-    /// Where the tab sits on the edge, as a fraction of the screen height (remembered).
-    private var anchor: CGFloat = {
-        let v = UserDefaults.standard.double(forKey: "tabAnchor")
-        return v > 0 ? CGFloat(v) : 0.62
+    /// How far the tab sits in from the top-right corner, in points (remembered; drag to change).
+    private var inset: CGFloat = {
+        let v = UserDefaults.standard.object(forKey: "tabInsetRight") as? Double
+        return CGFloat(v ?? 24)
     }()
-    private var dragStart: (mouseY: CGFloat, frameY: CGFloat)?
+    private var dragStart: (mouseX: CGFloat, frameX: CGFloat)?
 
     init(store: NotesStore, updater: SPUUpdater) {
         self.store = store
@@ -78,6 +78,16 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         state.tabDragChanged = { [weak self] in self?.dragChanged() }
         state.tabDragEnded = { [weak self] in self?.dragEnded() }
 
+        // Each screen gets its own size; follow along while the panel is open.
+        Publishers.CombineLatest4(store.$composing, store.$selectedThreadID, store.$showSettings, store.$showSetup)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self, self.mode == .open else { return }
+                let target = self.openFrame
+                if target != self.panel.frame { self.slide(to: target, duration: 0.3) }
+            }
+            .store(in: &cancellables)
+
         // Any click or keypress inside the panel keeps it open.
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] e in
             if let self, e.window === self.panel, self.mode == .open { self.pin() }
@@ -91,23 +101,35 @@ final class SidePanelController: NSObject, NSWindowDelegate {
 
     private var area: NSRect { (NSScreen.main ?? NSScreen.screens[0]).visibleFrame }
 
+    /// Hangs down from the top edge, just under the menu bar near the right corner.
     /// Slim handle normally; a bigger tab with her initial when something is unread.
-    /// The frame is wider than what's drawn so the mouse only has to get close.
+    /// The frame is taller than what's drawn so the mouse only has to get close.
     private var tabSize: NSSize {
-        store.unreadIncoming.isEmpty ? NSSize(width: 26, height: 84) : NSSize(width: 66, height: 60)
+        store.unreadIncoming.isEmpty ? NSSize(width: 84, height: 24) : NSSize(width: 60, height: 62)
     }
 
     private var tabFrame: NSRect {
         let s = tabSize
-        return NSRect(x: area.maxX - s.width, y: area.minY + area.height * anchor - s.height / 2,
-                      width: s.width, height: s.height)
+        let x = min(max(area.maxX - inset - s.width, area.minX + 8), area.maxX - s.width)
+        return NSRect(x: x, y: area.maxY - s.height, width: s.width, height: s.height)
+    }
+
+    /// Small by default: just a note card to write in. Bigger only for reading or settings.
+    private var openSize: NSSize {
+        if !store.isConfigured || store.showSetup { return NSSize(width: 340, height: 520) }
+        if store.showSettings { return NSSize(width: 320, height: 470) }
+        if store.selectedThreadID != nil { return NSSize(width: 300, height: 420) }
+        if store.composing { return NSSize(width: 290, height: 214) }
+        return NSSize(width: 300, height: 420)
     }
 
     private var openFrame: NSRect {
         let h = min(openSize.height, area.height - 24)
-        let center = area.minY + area.height * anchor
-        let y = max(area.minY + 12, min(center - h / 2, area.maxY - h - 12))
-        return NSRect(x: area.maxX - openSize.width - 12, y: y, width: openSize.width, height: h)
+        let w = openSize.width
+        // Drop down from the tab: right edges line up, kept on screen.
+        let tabRight = area.maxX - inset
+        let x = min(max(tabRight - w + 12, area.minX + 8), area.maxX - w - 8)
+        return NSRect(x: x, y: area.maxY - h - 8, width: w, height: h)
     }
 
     // MARK: States
@@ -117,10 +139,13 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         mode = .tab
         state.expanded = false
         let target = tabFrame
-        panel.setFrame(target.offsetBy(dx: target.width, dy: 0), display: false)
-        panel.alphaValue = 1
+        panel.setFrame(target, display: false)
+        panel.alphaValue = 0
         panel.orderFrontRegardless()
-        slide(to: target, duration: 0.45)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            panel.animator().alphaValue = 1
+        }
     }
 
     /// A note came in: chime, and grow the tab to show it.
@@ -136,8 +161,15 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         hoverOpenWork?.cancel()
         leaveWork?.cancel()
         self.pinned = pinned || self.pinned
-        if let unread = store.unreadIncoming.last, store.selectedThreadID == nil, !store.composing {
-            store.selectedThreadID = unread.threadID
+        if mode != .open, !store.showSettings {
+            if let unread = store.unreadIncoming.last {
+                // Something new: open straight to it.
+                store.composing = false
+                store.selectedThreadID = unread.threadID
+            } else if store.selectedThreadID == nil {
+                // Nothing new: open straight to a blank note.
+                store.composing = true
+            }
         }
         if let id = store.selectedThreadID { store.markThreadRead(id) }
 
@@ -145,10 +177,16 @@ final class SidePanelController: NSObject, NSWindowDelegate {
             mode = .open
             state.expanded = true
             let target = openFrame
-            panel.setFrame(target.offsetBy(dx: target.width + 20, dy: 0), display: false)
-            panel.alphaValue = 1
+            // Drops down a little from the top while fading in.
+            panel.setFrame(target.offsetBy(dx: 0, dy: 14), display: false)
+            panel.alphaValue = 0
             panel.orderFrontRegardless()
-            slide(to: target, duration: 0.4)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.32
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+                panel.animator().setFrame(target, display: true)
+                panel.animator().alphaValue = 1
+            }
         }
         if self.pinned { takeFocus() }
     }
@@ -160,13 +198,16 @@ final class SidePanelController: NSObject, NSWindowDelegate {
         guard mode == .open else { return }
         mode = .tab
         pinned = false
+        store.showSettings = false
+        store.selectedThreadID = nil
         hoverOpenWork?.cancel()
         leaveWork?.cancel()
-        let out = panel.frame.offsetBy(dx: panel.frame.width + 20, dy: 0)
+        let out = panel.frame.offsetBy(dx: 0, dy: 14)
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.24
+            ctx.duration = 0.2
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().setFrame(out, display: true)
+            panel.animator().alphaValue = 0
         }, completionHandler: {
             Task { @MainActor in
                 guard self.mode == .tab else { return }
@@ -236,19 +277,19 @@ final class SidePanelController: NSObject, NSWindowDelegate {
     private func dragChanged() {
         guard mode == .tab else { return }
         hoverOpenWork?.cancel()
-        let mouseY = NSEvent.mouseLocation.y
-        if dragStart == nil { dragStart = (mouseY, panel.frame.minY) }
+        let mouseX = NSEvent.mouseLocation.x
+        if dragStart == nil { dragStart = (mouseX, panel.frame.minX) }
         guard let start = dragStart else { return }
         var f = panel.frame
-        f.origin.y = min(max(start.frameY + (mouseY - start.mouseY), area.minY + 8), area.maxY - f.height - 8)
+        f.origin.x = min(max(start.frameX + (mouseX - start.mouseX), area.minX + 8), area.maxX - f.width)
         panel.setFrame(f, display: true)
     }
 
     private func dragEnded() {
         guard dragStart != nil else { return }
         dragStart = nil
-        anchor = (panel.frame.midY - area.minY) / area.height
-        UserDefaults.standard.set(Double(anchor), forKey: "tabAnchor")
+        inset = area.maxX - panel.frame.maxX
+        UserDefaults.standard.set(Double(inset), forKey: "tabInsetRight")
     }
 
     // MARK: NSWindowDelegate
