@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Theme.registerFonts()
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
 
@@ -135,15 +136,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     func showWindow() {
         if window == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                              backing: .buffered, defer: false)
             w.title = "Connect"
+            w.titleVisibility = .hidden
+            w.titlebarAppearsTransparent = true
+            w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.contentView = NSHostingView(rootView: RootView().environmentObject(store))
             w.center()
-            w.setFrameAutosaveName("ConnectMainWindow")
+            w.setFrameAutosaveName("ConnectWindow")
             window = w
         }
         NSApp.setActivationPolicy(.regular)   // show in Dock / ⌘-Tab while the window is open

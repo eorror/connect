@@ -5,14 +5,28 @@ struct RootView: View {
     @EnvironmentObject var store: NotesStore
 
     var body: some View {
-        Group {
+        ZStack {
+            Theme.bg.ignoresSafeArea()
             if store.isConfigured && !store.showSetup {
                 MainView()
             } else {
                 SetupView()
             }
         }
-        .frame(minWidth: 640, minHeight: 440)
+        .foregroundStyle(Theme.ink)
+        .font(Theme.sans(14))
+        .frame(minWidth: 760, minHeight: 500)
+    }
+}
+
+/// "Connect" wordmark in italic serif, with today's date beside it (as Cairn does with Desk).
+struct Wordmark: View {
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Connect").font(Theme.serif(28, italic: true))
+            Text(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                .font(Theme.sans(13)).foregroundStyle(Theme.ink3)
+        }
     }
 }
 
@@ -33,65 +47,64 @@ struct SetupView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "heart.text.square.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.pink)
-            Text("Set up Connect").font(.title2.bold())
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Connect").font(Theme.serif(40, italic: true))
+                Text("Little notes between two laptops.").foregroundStyle(Theme.ink2)
+            }
 
-            Form {
-                if showServer {
-                    Section("Server") {
-                        TextField("Supabase URL", text: $url, prompt: Text("https://xxxx.supabase.co"))
-                        TextField("Key", text: $key, prompt: Text("publishable / anon key"))
-                    }
-                }
-
-                Section("Your account") {
-                    if let s = store.auth.session {
-                        HStack {
-                            Image(systemName: "person.crop.circle.fill").font(.title).foregroundStyle(.secondary)
-                            VStack(alignment: .leading) {
-                                Text(s.name).font(.headline)
-                                Text(s.email).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button("Sign Out") { store.auth.signOut() }
-                        }
-                    } else {
-                        Button { Task { await signIn() } } label: {
-                            Label(busy ? "Waiting for Google…" : "Sign in with Google", systemImage: "person.crop.circle.badge.checkmark")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .controlSize(.large)
-                        .disabled(busy)
-                    }
-                }
-
-                Section("Who are you sending notes to?") {
-                    TextField("Their Google email", text: $partner, prompt: Text("name@gmail.com"))
-                        .textContentType(.emailAddress)
+            if showServer {
+                SetupSection("Server") {
+                    ThemedField("Supabase URL", text: $url, prompt: "https://xxxx.supabase.co")
+                    ThemedField("Key", text: $key, prompt: "publishable / anon key")
                 }
             }
-            .formStyle(.grouped)
-            .frame(maxWidth: 460)
+
+            SetupSection("Your account") {
+                if let s = store.auth.session {
+                    HStack(spacing: 12) {
+                        Circle().fill(Theme.mineTint).frame(width: 34, height: 34)
+                            .overlay(Text(String(s.name.prefix(1))).font(Theme.sans(14, .semibold)))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(s.name).font(Theme.sans(14, .semibold))
+                            Text(s.email).font(Theme.sans(12)).foregroundStyle(Theme.ink3)
+                        }
+                        Spacer()
+                        Button("Sign out") { store.auth.signOut() }.buttonStyle(.pillSecondary)
+                    }
+                } else {
+                    Button { Task { await signIn() } } label: {
+                        Label(busy ? "Waiting for Google…" : "Sign in with Google",
+                              systemImage: "person.crop.circle.badge.checkmark")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.pill)
+                    .disabled(busy)
+                }
+            }
+
+            SetupSection("Who are you writing to?") {
+                ThemedField("Their Google email", text: $partner, prompt: "name@gmail.com")
+            }
 
             if let error {
-                Text(error).foregroundStyle(.red).font(.callout)
-                    .multilineTextAlignment(.center).frame(maxWidth: 440)
+                Text(error).font(Theme.sans(12)).foregroundStyle(Color(red: 0.70, green: 0.23, blue: 0.15))
             }
 
             HStack {
+                Spacer()
                 if store.isConfigured {
-                    Button("Cancel") { store.showSetup = false }
+                    Button("Cancel") { store.showSetup = false }.buttonStyle(.pillSecondary)
                 }
                 Button("Done") { finish() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.pink)
+                    .buttonStyle(.pill)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!store.isSignedIn || !partnerValid)
             }
         }
+        .padding(30)
+        .frame(width: 440)
+        .glassCard(radius: 24)
         .padding(30)
     }
 
@@ -115,8 +128,9 @@ struct SetupView: View {
             try await store.auth.signInWithGoogle(backend: backend)
             if showServer { store.setBackend(backend) }
         } catch {
-            if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue,
-               (error as NSError).domain == ASWebAuthenticationSessionErrorDomain { return }
+            let ns = error as NSError
+            if ns.domain == ASWebAuthenticationSessionErrorDomain,
+               ns.code == ASWebAuthenticationSessionError.canceledLogin.rawValue { return }
             self.error = error.localizedDescription
         }
     }
@@ -128,77 +142,162 @@ struct SetupView: View {
     }
 }
 
+struct SetupSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    init(_ title: String, @ViewBuilder content: () -> Content) { self.title = title; self.content = content() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased()).font(Theme.sans(11, .semibold)).tracking(0.6).foregroundStyle(Theme.ink3)
+            VStack(alignment: .leading, spacing: 8) { content }
+        }
+    }
+}
+
+struct ThemedField: View {
+    let label: String
+    @Binding var text: String
+    let prompt: String
+    init(_ label: String, text: Binding<String>, prompt: String) {
+        self.label = label; _text = text; self.prompt = prompt
+    }
+
+    var body: some View {
+        TextField(label, text: $text, prompt: Text(prompt).foregroundStyle(Theme.ink3))
+            .textFieldStyle(.plain)
+            .font(Theme.sans(14))
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(Theme.solid, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+    }
+}
+
 // MARK: - Main
 
 struct MainView: View {
     @EnvironmentObject var store: NotesStore
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $store.selectedThreadID) {
-                ForEach(store.threads) { thread in
-                    ThreadRow(thread: thread).tag(thread.id)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-            .overlay {
-                if store.threads.isEmpty {
-                    ContentUnavailableView("No notes yet", systemImage: "heart.text.square",
-                                           description: Text("Write the first one."))
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Wordmark()
+                Spacer()
                 if let err = store.lastError {
-                    Label(err, systemImage: "wifi.exclamationmark")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2).padding(8)
+                    Label("Offline", systemImage: "wifi.exclamationmark")
+                        .font(Theme.sans(12)).foregroundStyle(Theme.ink3).help(err)
                 }
+                Button { store.selectedThreadID = nil } label: {
+                    Label("New note", systemImage: "square.and.pencil")
+                }
+                .buttonStyle(.pill)
+                .keyboardShortcut("n")
             }
-            .toolbar {
-                ToolbarItem {
-                    Button { store.selectedThreadID = nil } label: {
-                        Label("New Note", systemImage: "square.and.pencil")
+            .padding(.leading, 70)   // clear the window's traffic lights
+            .frame(height: 30)
+
+            HStack(spacing: 16) {
+                NotesList().frame(width: 290)
+                Group {
+                    if let id = store.selectedThreadID, let thread = store.threads.first(where: { $0.id == id }) {
+                        ThreadView(thread: thread).id(id)
+                    } else {
+                        ComposeView()
                     }
-                    .keyboardShortcut("n")
-                    .help("New note (⌘N)")
                 }
-            }
-        } detail: {
-            if let id = store.selectedThreadID, let thread = store.threads.first(where: { $0.id == id }) {
-                ThreadView(thread: thread).id(id)
-            } else {
-                ComposeView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .glassCard()
             }
         }
+        .padding(.horizontal, 18)
+        .padding(.top, 8)
+        .padding(.bottom, 18)
+        .ignoresSafeArea(.container, edges: .top)
         .onChange(of: store.selectedThreadID) { _, id in
             if let id { store.markThreadRead(id) }
         }
     }
 }
 
-struct ThreadRow: View {
+struct NotesList: View {
     @EnvironmentObject var store: NotesStore
-    let thread: NoteThread
 
     var body: some View {
-        let unread = store.unreadCount(in: thread)
-        HStack(alignment: .top, spacing: 8) {
-            Circle().fill(unread > 0 ? Color.pink : .clear).frame(width: 8, height: 8).padding(.top, 5)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text(store.isMine(thread.root) ? "You" : thread.root.senderName)
-                        .font(.headline)
-                    Spacer()
-                    Text(thread.last.createdAt, format: .relative(presentation: .named))
-                        .font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Notes").font(Theme.serif(24))
+                Spacer()
+                let unread = store.unreadIncoming.count
+                if unread > 0 {
+                    Text("\(unread) new").font(Theme.sans(11, .semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Theme.accentSoft, in: Capsule())
+                        .foregroundStyle(Theme.accent)
                 }
-                Text(thread.root.body).lineLimit(2).font(.callout).foregroundStyle(.secondary)
-                if !thread.replies.isEmpty {
-                    Text("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")")
-                        .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 10)
+
+            if store.threads.isEmpty {
+                VStack(spacing: 6) {
+                    Text("No notes yet").font(Theme.serif(20))
+                    Text("Write the first one.").font(Theme.sans(13)).foregroundStyle(Theme.ink3)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(store.threads) { thread in
+                            ThreadRow(thread: thread, selected: store.selectedThreadID == thread.id)
+                                .onTapGesture { store.selectedThreadID = thread.id }
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.bottom, 10)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .glassCard()
+    }
+}
+
+struct ThreadRow: View {
+    @EnvironmentObject var store: NotesStore
+    let thread: NoteThread
+    let selected: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        let unread = store.unreadCount(in: thread)
+        let mine = store.isMine(thread.root)
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(mine ? Theme.mineDot : Theme.theirDot).frame(width: 8, height: 8).padding(.top, 5)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(mine ? "You" : thread.root.senderName).font(Theme.sans(13, .semibold))
+                    Spacer()
+                    Text(thread.last.createdAt, format: .relative(presentation: .named))
+                        .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                }
+                Text(thread.root.body).font(Theme.sans(13)).foregroundStyle(Theme.ink2).lineLimit(2)
+                if !thread.replies.isEmpty {
+                    Text("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")")
+                        .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
+                }
+            }
+            if unread > 0 {
+                Circle().fill(Theme.accent).frame(width: 7, height: 7).padding(.top, 6)
+            }
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(selected ? Theme.accentSoft : (hovering ? Theme.glass2 : .clear))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(selected ? Theme.accent.opacity(0.55) : .clear, lineWidth: 1))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
     }
 }
 
@@ -221,41 +320,42 @@ struct ThreadView: View {
                                 .id(note.id)
                         }
                     }
-                    .padding(20)
+                    .padding(22)
                 }
                 .onAppear { proxy.scrollTo(thread.last.id, anchor: .bottom) }
                 .onChange(of: thread.replies.count) { _, _ in
                     withAnimation { proxy.scrollTo(thread.last.id, anchor: .bottom) }
                 }
             }
-            Divider()
+            Rectangle().fill(Theme.line).frame(height: 1)
             replyBar
         }
-        .navigationTitle(store.isMine(thread.root) ? "Your note" : "Note from \(thread.root.senderName)")
     }
 
     private var lastMine: Note? { thread.all.last(where: { store.isMine($0) }) }
 
     private var replyBar: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            TextField("Write a reply…", text: $draft, axis: .vertical)
+        VStack(alignment: .trailing, spacing: 10) {
+            TextField("Write a reply…", text: $draft,
+                      prompt: Text("Write a reply…").foregroundStyle(Theme.ink3), axis: .vertical)
                 .textFieldStyle(.plain)
+                .font(Theme.sans(14))
                 .lineLimit(1...6)
-                .padding(10)
-                .background(.background, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary))
-            HStack {
-                Button("Send as New Note") { send(asReply: false) }
+                .padding(12)
+                .background(Theme.solid, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+            HStack(spacing: 8) {
+                Button("Send as new note") { send(asReply: false) }
+                    .buttonStyle(.pillSecondary)
                     .help("Starts a new note instead of replying in this one")
                 Button("Reply") { send(asReply: true) }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.pink)
+                    .buttonStyle(.pill)
                     .keyboardShortcut(.return, modifiers: .command)
                     .help("Reply (⌘↩)")
             }
             .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .padding(14)
+        .padding(16)
     }
 
     private func send(asReply: Bool) {
@@ -277,28 +377,29 @@ struct NoteBubble: View {
     var body: some View {
         let mine = store.isMine(note)
         HStack {
-            if mine { Spacer(minLength: 60) }
-            VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
+            if mine { Spacer(minLength: 70) }
+            VStack(alignment: mine ? .trailing : .leading, spacing: 5) {
                 Text("\(mine ? "You" : note.senderName) · \(note.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Theme.sans(11)).foregroundStyle(Theme.ink3)
                 Text(note.body)
-                    .font(isRoot ? .title3 : .body)
+                    .font(isRoot ? Theme.serif(22) : Theme.sans(14))
+                    .lineSpacing(isRoot ? 2 : 1)
                     .textSelection(.enabled)
-                    .padding(isRoot ? 16 : 10)
-                    .foregroundStyle(isRoot ? Color.black.opacity(0.85) : (mine ? .white : .primary))
-                    .background(background(mine: mine), in: RoundedRectangle(cornerRadius: isRoot ? 6 : 14))
-                    .shadow(color: isRoot ? .black.opacity(0.12) : .clear, radius: 4, y: 2)
+                    .padding(.horizontal, isRoot ? 18 : 14)
+                    .padding(.vertical, isRoot ? 14 : 10)
+                    .background {
+                        RoundedRectangle(cornerRadius: isRoot ? 16 : 14, style: .continuous)
+                            .fill(mine ? Theme.mineTint : Theme.theirTint)
+                            .overlay(RoundedRectangle(cornerRadius: isRoot ? 16 : 14, style: .continuous)
+                                .strokeBorder(Theme.stroke, lineWidth: 1))
+                            .shadow(color: Theme.shadow, radius: 10, y: 4)
+                    }
                 if showSeen && note.readAt != nil {
-                    Text("Seen").font(.caption2).foregroundStyle(.tertiary)
+                    Text("Seen").font(Theme.sans(11)).foregroundStyle(Theme.ink3)
                 }
             }
-            if !mine { Spacer(minLength: 60) }
+            if !mine { Spacer(minLength: 70) }
         }
-    }
-
-    private func background(mine: Bool) -> Color {
-        if isRoot { return Color(red: 1.0, green: 0.95, blue: 0.70) }   // sticky-note yellow
-        return mine ? .pink : Color.secondary.opacity(0.15)
     }
 }
 
@@ -311,33 +412,40 @@ struct ComposeView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("New note for \(store.partnerName)")
-                .font(.title2.bold())
-            TextEditor(text: $draft)
-                .font(.title3)
-                .scrollContentBackground(.hidden)
-                .padding(14)
-                .background(Color(red: 1.0, green: 0.95, blue: 0.70), in: RoundedRectangle(cornerRadius: 6))
-                .foregroundStyle(Color.black.opacity(0.85))
-                .focused($focused)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("A note for \(store.partnerName)").font(Theme.serif(30))
+            ZStack(alignment: .topLeading) {
+                if draft.isEmpty {
+                    Text("Write something nice…").font(Theme.serif(22)).foregroundStyle(Theme.ink3)
+                        .padding(.horizontal, 23).padding(.vertical, 18)
+                        .allowsHitTesting(false)
+                }
+                TextEditor(text: $draft)
+                    .font(Theme.serif(22))
+                    .scrollContentBackground(.hidden)
+                    .padding(18)
+                    .focused($focused)
+            }
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.mineTint)
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+            }
             HStack {
+                Text("⌘↩ to send").font(Theme.sans(12)).foregroundStyle(Theme.ink3)
                 Spacer()
-                Button(sending ? "Sending…" : "Send Note") {
+                Button(sending ? "Sending…" : "Send note") {
                     sending = true
                     Task {
                         if await store.send(draft, replyTo: nil) { draft = "" }
                         sending = false
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.pink)
+                .buttonStyle(.pill)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(sending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(20)
-        .navigationTitle("New Note")
+        .padding(24)
         .onAppear { focused = true }
     }
 }
@@ -348,31 +456,42 @@ struct PopupView: View {
     let notes: [Note]
     let onOpen: () -> Void
     let onDismiss: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         let latest = notes.last!
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "heart.text.square.fill")
-                .font(.system(size: 30))
-                .foregroundStyle(.pink)
+            Circle().fill(Theme.theirTint).frame(width: 36, height: 36)
+                .overlay(Text(String(latest.senderName.prefix(1))).font(Theme.sans(15, .semibold)))
+                .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
             VStack(alignment: .leading, spacing: 3) {
-                Text(notes.count > 1 ? "\(notes.count) new notes from \(latest.senderName)" : "New note from \(latest.senderName)")
-                    .font(.headline)
-                Text(latest.body).font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                Text("Click to open and reply").font(.caption2).foregroundStyle(.tertiary)
+                Text(notes.count > 1 ? "\(notes.count) notes from \(latest.senderName)" : "A note from \(latest.senderName)")
+                    .font(Theme.sans(13, .semibold))
+                Text(latest.body).font(Theme.serif(17)).foregroundStyle(Theme.ink2).lineLimit(2)
             }
             Spacer(minLength: 0)
             Button(action: onDismiss) {
-                Image(systemName: "xmark").font(.caption.bold()).foregroundStyle(.secondary)
+                Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.ink3)
+                    .frame(width: 20, height: 20)
+                    .background(Theme.glass2, in: Circle())
             }
             .buttonStyle(.plain)
+            .opacity(hovering ? 1 : 0.6)
             .help("Dismiss")
         }
+        .foregroundStyle(Theme.ink)
         .padding(14)
         .frame(width: 330, height: 100, alignment: .topLeading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.pink.opacity(0.35)))
-        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.panel))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .scaleEffect(hovering ? 1.015 : 1)
+        .animation(.spring(response: 0.42, dampingFraction: 0.6), value: hovering)
+        .onHover { hovering = $0 }
         .onTapGesture(perform: onOpen)
     }
 }

@@ -15,6 +15,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resourc
 cp "$PRODUCTS/Connect" "$APP/Contents/MacOS/Connect"
 ditto "$PRODUCTS/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+if ls Resources/Fonts/*.ttf >/dev/null 2>&1; then
+  mkdir -p "$APP/Contents/Resources/Fonts" && cp Resources/Fonts/*.ttf "$APP/Contents/Resources/Fonts/"
+fi
 
 sed -e "s|__VERSION__|${MARKETING_VERSION}|" \
     -e "s|__BUILD__|${BUILD_NUMBER}|" \
