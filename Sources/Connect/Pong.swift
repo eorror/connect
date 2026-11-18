@@ -191,18 +191,17 @@ struct PongBoard: View {
         let me = games.myIndex
         ZStack {
             // Court
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(LinearGradient(colors: [Players.soft[1 - me], Color(hex: 0xFFF6EE), Players.soft[me]],
-                                     startPoint: .top, endPoint: .bottom))
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(.white.opacity(0.8), lineWidth: 2)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(hex: 0x18181B))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
             Path { p in p.move(to: CGPoint(x: 10, y: h / 2)); p.addLine(to: CGPoint(x: w - 10, y: h / 2)) }
-                .stroke(Ink.soft.opacity(0.35), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 7]))
+                .stroke(.white.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [6, 6]))
 
             // Scores, big and faint, in each half
-            Text("\(board.scores[1 - me])").font(Theme.marker(46)).foregroundStyle(Players.color[1 - me].opacity(0.35))
+            Text("\(board.scores[1 - me])").font(.system(size: 44, weight: .bold, design: .monospaced)).foregroundStyle(.white.opacity(0.18))
                 .position(x: w / 2, y: h * 0.27)
-            Text("\(board.scores[me])").font(Theme.marker(46)).foregroundStyle(Players.color[me].opacity(0.35))
+            Text("\(board.scores[me])").font(.system(size: 44, weight: .bold, design: .monospaced)).foregroundStyle(.white.opacity(0.18))
                 .position(x: w / 2, y: h * 0.73)
 
             // Paddles
@@ -210,16 +209,16 @@ struct PongBoard: View {
             paddle(for: me)
 
             // Ball
-            Text("💗").font(.system(size: 17))
-                .shadow(color: Players.color[0].opacity(0.5), radius: 4)
+            Rectangle().fill(.white)
+                .frame(width: 2 * PongLive.radius * w, height: 2 * PongLive.radius * w)
                 .position(view(live.ball))
                 .opacity(board.result == nil ? 1 : 0)
 
             if board.result == nil, live.waiting > 0 {
                 Text(live.waiting > 100 ? "…" : live.waiting > 0.8 ? "Ready?" : "Go!")
-                    .font(Theme.marker(26)).foregroundStyle(Ink.main)
-                    .padding(.horizontal, 14).padding(.vertical, 2)
-                    .background(.white.opacity(0.7), in: Capsule())
+                    .font(.system(size: 18, weight: .bold, design: .monospaced)).foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+                    .background(Color(hex: 0x18181B))
                     .position(x: w / 2, y: h / 2)
                     .transition(.scale.combined(with: .opacity))
             }
@@ -235,11 +234,9 @@ struct PongBoard: View {
 
     private func paddle(for p: Int) -> some View {
         let y = p == 0 ? PongLive.height - PongLive.padInset : PongLive.padInset
-        return Capsule()
-            .fill(Players.color[p])
-            .overlay(Capsule().strokeBorder(.white.opacity(0.6), lineWidth: 1))
-            .shadow(color: Players.color[p].opacity(0.5), radius: 4, y: 1)
-            .frame(width: PongLive.padWidth * w, height: 10)
+        return Rectangle()
+            .fill(p == games.myIndex ? Color.white : Color.white.opacity(0.75))
+            .frame(width: PongLive.padWidth * w, height: 8)
             .position(view(CGPoint(x: live.pads[p], y: y)))
     }
 

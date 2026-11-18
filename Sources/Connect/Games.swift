@@ -20,14 +20,15 @@ enum GameKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var emoji: String {
+    /// SF Symbol for the picker.
+    var symbol: String {
         switch self {
-        case .tictactoe: return "🎀"
-        case .connect4: return "🫧"
-        case .memory: return "🧸"
-        case .rps: return "✌️"
-        case .dots: return "✏️"
-        case .pong: return "🏓"
+        case .tictactoe: return "number"
+        case .connect4: return "circle.grid.3x3.fill"
+        case .memory: return "square.on.square"
+        case .rps: return "scissors"
+        case .dots: return "square.grid.3x3"
+        case .pong: return "circle.and.line.horizontal"
         }
     }
 
@@ -42,24 +43,29 @@ enum GameKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Soft tile colour in the picker.
+    /// Icon colour in the picker.
     var tint: Color {
         switch self {
-        case .tictactoe: return Color(hex: 0xF9D5E2)
-        case .connect4: return Color(hex: 0xD3E6F3)
-        case .memory: return Color(hex: 0xF6E3C6)
-        case .rps: return Color(hex: 0xE2DBF4)
-        case .dots: return Color(hex: 0xD8EEDC)
-        case .pong: return Color(hex: 0xFBE0CF)
+        case .tictactoe: return Color(hex: 0xE5534B)
+        case .connect4: return Color(hex: 0xE0A800)
+        case .memory: return Color(hex: 0x8B5CF6)
+        case .rps: return Color(hex: 0x10A37F)
+        case .dots: return Color(hex: 0x3B82F6)
+        case .pong: return Color(hex: 0x64748B)
         }
     }
 }
 
-/// Player 0 is pink hearts, player 1 is blue hearts.
+/// Player 0 is red (X), player 1 is blue (O); in connect four player 1 is yellow.
 enum Players {
-    static let token = ["💗", "💙"]
-    static let color = [Color(hex: 0xEE8FB4), Color(hex: 0x7FB6E3)]
-    static let soft = [Color(hex: 0xFBDCE8), Color(hex: 0xD8E9F7)]
+    static let color = [Color(hex: 0xE5534B), Color(hex: 0x3B82F6)]
+    static let soft = [Color(hex: 0xFADBD9), Color(hex: 0xDBE7FD)]
+    static let mark = ["X", "O"]
+    static let yellow = Color(hex: 0xF2C12E)
+
+    static func color(_ i: Int, _ kind: GameKind) -> Color {
+        kind == .connect4 && i == 1 ? yellow : color[i]
+    }
 }
 
 /// The whole state of one game. Sent in full after every move, so both laptops always agree.
@@ -111,7 +117,11 @@ struct Board: Codable, Equatable {
         }
     }
 
-    static let memoryFaces = ["🍓", "🌸", "🧸", "🐰", "🍰", "🌈", "⭐️", "🐱"]
+    /// SF Symbols and their colours for the memory cards.
+    static let memoryFaces = ["star.fill", "moon.fill", "bolt.fill", "leaf.fill",
+                              "flame.fill", "drop.fill", "sun.max.fill", "cloud.fill"]
+    static let memoryColors: [UInt32] = [0xE0A800, 0x6366F1, 0xF59E0B, 0x16A34A,
+                                         0xEF4444, 0x0EA5E9, 0xF97316, 0x64748B]
     static let rpsHands = ["✊", "✋", "✌️"]
     static let rpsNames = ["rock", "paper", "scissors"]
 
@@ -362,7 +372,7 @@ final class GameCenter: ObservableObject {
             if phase == .inviting, sameSession { setPhase(.lobby) }
         case "decline":
             if phase == .inviting, sameSession {
-                notice = "\(partnerFirst) can't play right now 🥺"
+                notice = "\(partnerFirst) can't play right now"
                 setPhase(.idle)
             }
         case "cancel":

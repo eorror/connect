@@ -30,7 +30,7 @@ struct GamesScreen: View {
 
 /// Big soft capsule button.
 struct CuteButtonStyle: ButtonStyle {
-    var color = Players.color[0]
+    var color = Color.accentColor
     var filled = true
     @Environment(\.isEnabled) private var enabled
 
@@ -66,26 +66,13 @@ struct PresencePill: View {
     }
 }
 
-/// An emoji that keeps doing a happy little wiggle.
-struct Wiggle: View {
-    let text: String
-    var size: CGFloat = 40
-    var body: some View {
-        PhaseAnimator([0.0, -10.0, 8.0, -4.0, 0.0, 0.0]) { a in
-            Text(text).font(.system(size: size))
-                .rotationEffect(.degrees(a))
-                .offset(y: a == 0 ? 0 : -3)
-        } animation: { _ in .spring(response: 0.22, dampingFraction: 0.55) }
-    }
-}
-
-/// Three hearts bouncing in turn, for waiting.
-struct BouncingHearts: View {
+/// Three dots bouncing in turn, for waiting.
+struct BouncingDots: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(0..<3) { i in
-                PhaseAnimator([0.0, -8.0, 0.0]) { y in
-                    Text(Players.token[i % 2]).font(.system(size: 18)).offset(y: y)
+                PhaseAnimator([0.0, -6.0, 0.0]) { y in
+                    Circle().fill(Theme.ink2).frame(width: 8, height: 8).offset(y: y)
                 } animation: { y in
                     y == 0 ? .easeIn(duration: 0.25) : .easeOut(duration: 0.25).delay(Double(i) * 0.15)
                 }
@@ -102,14 +89,14 @@ struct GamesHome: View {
     var body: some View {
         VStack(spacing: 10) {
             PresencePill()
-            Wiggle(text: "🎮")
-            Text("Play something together?").font(Theme.marker(24))
-            Text("Send \(games.partnerFirst) a little ping. When they say yes, pick a game and play live from your own laptops.")
+            Image(systemName: "gamecontroller.fill").font(.system(size: 30)).foregroundStyle(Theme.ink2)
+            Text("Play a game").font(Theme.sans(17, .bold))
+            Text("Invite \(games.partnerFirst). When they accept, pick a game and play live from your own laptops.")
                 .font(Theme.sans(11.5)).foregroundStyle(Theme.ink2)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Button { games.invite() } label: {
-                Label("Ask \(games.partnerFirst) to play", systemImage: "heart.fill")
+                Label("Ask \(games.partnerFirst) to play", systemImage: "paperplane.fill")
             }
             .buttonStyle(CuteButtonStyle())
             .padding(.top, 2)
@@ -118,9 +105,9 @@ struct GamesHome: View {
             }
             HStack(spacing: 8) {
                 ForEach(GameKind.allCases) { k in
-                    Text(k.emoji).font(.system(size: 15))
+                    Image(systemName: k.symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(k.tint)
                         .frame(width: 30, height: 30)
-                        .background(k.tint, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .background(Theme.glass2, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .help(k.name)
                 }
             }
@@ -134,14 +121,14 @@ struct WaitingCard: View {
     var body: some View {
         VStack(spacing: 10) {
             PresencePill()
-            BouncingHearts().padding(.top, 6)
-            Text("Waiting for \(games.partnerFirst)…").font(Theme.marker(22))
-            Text(games.partnerOnline ? "Their laptop is pinging now ✨"
+            BouncingDots().padding(.top, 6)
+            Text("Waiting for \(games.partnerFirst)…").font(Theme.sans(16, .bold))
+            Text(games.partnerOnline ? "The invite is on their screen now."
                  : "They're away, so they'll get it as soon as they're back.")
                 .font(Theme.sans(11)).foregroundStyle(Theme.ink2)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Never mind") { games.cancelInvite() }
+            Button("Cancel") { games.cancelInvite() }
                 .buttonStyle(CuteButtonStyle(filled: false))
         }
     }
@@ -151,12 +138,12 @@ struct InvitedCard: View {
     @EnvironmentObject var games: GameCenter
     var body: some View {
         VStack(spacing: 10) {
-            Wiggle(text: "💌", size: 44)
-            Text("\(games.partnerFirst) wants to play!").font(Theme.marker(26))
-            Text("Say yes and you'll pick a game together.")
+            Image(systemName: "gamecontroller.fill").font(.system(size: 32)).foregroundStyle(Theme.ink2)
+            Text("\(games.partnerFirst) wants to play").font(Theme.sans(17, .bold))
+            Text("Accept and you'll pick a game together.")
                 .font(Theme.sans(11.5)).foregroundStyle(Theme.ink2)
             HStack(spacing: 8) {
-                Button("Let's play! 🎮") { games.accept() }.buttonStyle(CuteButtonStyle())
+                Button("Accept") { games.accept() }.buttonStyle(CuteButtonStyle())
                 Button("Not now") { games.decline() }.buttonStyle(CuteButtonStyle(filled: false))
             }
             .padding(.top, 2)
@@ -170,14 +157,13 @@ struct GamePicker: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Text("Pick a game").font(Theme.marker(24))
-            Text("Either of you can choose. \(games.partnerFirst) is looking too 👀")
+            Text("Pick a game").font(Theme.sans(17, .bold))
+            Text("Either of you can choose.")
                 .font(Theme.sans(11)).foregroundStyle(Theme.ink2)
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(GameKind.allCases) { k in GameTile(kind: k) { games.choose(k) } }
             }
-            Button("Leave") { games.leave() }
-                .buttonStyle(.plain).font(Theme.sans(11, .medium)).foregroundStyle(Theme.ink3)
+            LeaveButton()
         }
     }
 }
@@ -190,17 +176,18 @@ private struct GameTile: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 3) {
-                Text(kind.emoji).font(.system(size: 24))
-                Text(kind.name).font(Theme.sans(11.5, .semibold)).foregroundStyle(Ink.main)
+                Image(systemName: kind.symbol).font(.system(size: 20, weight: .semibold)).foregroundStyle(kind.tint)
+                    .frame(height: 26)
+                Text(kind.name).font(Theme.sans(11.5, .semibold)).foregroundStyle(Theme.ink)
                     .lineLimit(1).minimumScaleFactor(0.8)
-                Text(kind.blurb).font(Theme.sans(9.5)).foregroundStyle(Ink.soft)
+                Text(kind.blurb).font(Theme.sans(9.5)).foregroundStyle(Theme.ink2)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(kind.tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.6), lineWidth: 1))
+            .background(Theme.glass2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
             .shadow(color: .black.opacity(hovering ? 0.18 : 0.08), radius: hovering ? 6 : 3, y: 2)
-            .scaleEffect(hovering ? 1.04 : 1)
+            .scaleEffect(hovering ? 1.02 : 1)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -212,8 +199,8 @@ struct LeftCard: View {
     @EnvironmentObject var games: GameCenter
     var body: some View {
         VStack(spacing: 10) {
-            Text("🫶").font(.system(size: 38))
-            Text("\(games.partnerFirst) left the game").font(Theme.marker(22))
+            Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 28)).foregroundStyle(Theme.ink2)
+            Text("\(games.partnerFirst) left the game").font(Theme.sans(16, .bold))
             Button("OK") { games.backHome() }.buttonStyle(CuteButtonStyle())
         }
     }
@@ -228,14 +215,16 @@ struct GamePlay: View {
         if let b = games.board {
             VStack(spacing: 10) {
                 HStack(alignment: .center) {
-                    PlayerChip(name: "You", index: games.myIndex, score: b.scores[games.myIndex],
+                    PlayerChip(name: "You", index: games.myIndex, kind: b.kind, score: b.scores[games.myIndex],
                                showScore: showsScore(b), active: activeIndex(b) == games.myIndex)
-                    Spacer()
-                    PlayerChip(name: games.partnerFirst, index: games.theirIndex, score: b.scores[games.theirIndex],
+                    Spacer(minLength: 4)
+                    LeaveButton()
+                    Spacer(minLength: 4)
+                    PlayerChip(name: games.partnerFirst, index: games.theirIndex, kind: b.kind, score: b.scores[games.theirIndex],
                                showScore: showsScore(b), active: activeIndex(b) == games.theirIndex)
                 }
                 Text(status(b))
-                    .font(Theme.marker(b.result == nil ? 20 : 25))
+                    .font(Theme.sans(b.result == nil ? 14 : 17, .bold))
                     .contentTransition(.opacity)
                     .animation(.easeOut(duration: 0.2), value: status(b))
 
@@ -258,8 +247,6 @@ struct GamePlay: View {
                     }
                     .transition(.scale.combined(with: .opacity))
                 }
-                Button("Leave game") { games.leave() }
-                    .buttonStyle(.plain).font(Theme.sans(10.5, .medium)).foregroundStyle(Theme.ink3)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.75), value: b)
         }
@@ -276,45 +263,84 @@ struct GamePlay: View {
     private func status(_ b: Board) -> String {
         let them = games.partnerFirst
         if let r = b.result {
-            if r == 2 { return "It's a tie 🤝" }
-            return r == games.myIndex ? "You won! 🎉" : "\(them) won 🥹"
+            if r == 2 { return "It's a tie" }
+            return r == games.myIndex ? "You won!" : "\(them) won"
         }
         if b.kind == .rps {
             if b.picks[games.myIndex] < 0 { return b.round == 0 ? "Pick one!" : "Round \(b.round + 1): pick one!" }
             return "Waiting for \(them)…"
         }
-        if b.kind == .pong { return "Move your mouse ↔︎" }
-        if b.memoryMismatch { return b.turn == games.myIndex ? "Not a pair 🙈" : "Not a pair!" }
-        return b.turn == games.myIndex ? "Your turn 💕" : "\(them)'s turn…"
+        if b.kind == .pong { return "Move your mouse to play" }
+        if b.memoryMismatch { return "Not a pair" }
+        return b.turn == games.myIndex ? "Your turn" : "\(them)'s turn"
     }
 }
 
-/// Name, heart and score, glowing while it's their go.
+/// Leave the game (or the picker) and go back home; the other person sees that you left.
+struct LeaveButton: View {
+    @EnvironmentObject var games: GameCenter
+    @State private var hovering = false
+
+    var body: some View {
+        Button { games.leave() } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold))
+                Text("Leave").font(Theme.sans(11, .semibold))
+            }
+            .foregroundStyle(hovering ? .white : Theme.ink2)
+            .padding(.horizontal, 9).padding(.vertical, 5)
+            .background(hovering ? Color(hex: 0xE58A9A) : Theme.glass2, in: Capsule())
+            .overlay(Capsule().strokeBorder(hovering ? .clear : Theme.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.15), value: hovering)
+        .help("Leave the game")
+    }
+}
+
+/// Name, mark and score, highlighted while it's their go.
 private struct PlayerChip: View {
     let name: String
     let index: Int
+    let kind: GameKind
     let score: Int
     let showScore: Bool
     let active: Bool
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(Players.token[index]).font(.system(size: 13))
+            PlayerMark(index: index, kind: kind, size: 13)
             Text(name).font(Theme.sans(11.5, .semibold)).lineLimit(1)
             if showScore {
                 Text("\(score)").font(Theme.sans(11.5, .semibold))
                     .foregroundStyle(.white)
                     .frame(minWidth: 18, minHeight: 18)
-                    .background(Players.color[index], in: Capsule())
+                    .background(Players.color(index, kind), in: Capsule())
                     .contentTransition(.numericText())
             }
         }
         .padding(.horizontal, 9).padding(.vertical, 5)
-        .background(active ? Players.soft[index] : Theme.glass2, in: Capsule())
-        .overlay(Capsule().strokeBorder(active ? Players.color[index] : Theme.line, lineWidth: active ? 1.5 : 1))
-        .foregroundStyle(active ? Ink.main : Theme.ink)
-        .scaleEffect(active ? 1.04 : 1)
+        .background(Theme.glass2, in: Capsule())
+        .overlay(Capsule().strokeBorder(active ? Players.color(index, kind) : Theme.line, lineWidth: active ? 1.5 : 1))
+        .foregroundStyle(Theme.ink)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: active)
+    }
+}
+
+/// A player's piece: X or O in tic tac toe, otherwise a dot in their colour.
+struct PlayerMark: View {
+    let index: Int
+    let kind: GameKind
+    var size: CGFloat = 13
+
+    var body: some View {
+        if kind == .tictactoe {
+            Text(Players.mark[index]).font(.system(size: size, weight: .heavy, design: .rounded))
+                .foregroundStyle(Players.color[index])
+        } else {
+            Circle().fill(Players.color(index, kind)).frame(width: size * 0.8, height: size * 0.8)
+        }
     }
 }
 
@@ -330,13 +356,13 @@ private struct TicTacToeBoard: View {
             ForEach(0..<9, id: \.self) { i in
                 let v = board.cells[i]
                 let win = board.winLine.contains(i)
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(win ? Players.soft[max(v, 0)] : Color(hex: 0xF7EFE3))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(win ? Players.color[max(v, 0)] : .black.opacity(0.06), lineWidth: win ? 2 : 1))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(win ? Players.soft[max(v, 0)] : Color(hex: 0xF4F4F5))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(win ? Players.color[max(v, 0)] : .black.opacity(0.08), lineWidth: win ? 2 : 1))
                     .overlay {
                         if v >= 0 {
-                            Text(Players.token[v]).font(.system(size: 34)).transition(.scale(scale: 0.3).combined(with: .opacity))
+                            PlayerMark(index: v, kind: .tictactoe, size: 36).transition(.scale(scale: 0.3).combined(with: .opacity))
                         }
                     }
                     .frame(width: 66, height: 66)
@@ -363,11 +389,8 @@ private struct ConnectFourBoard: View {
                     ForEach(0..<6, id: \.self) { r in
                         let v = board.cells[r * 7 + c]
                         Circle()
-                            .fill(v >= 0 ? Players.color[v] : Color(hex: 0xFBF6EE))
+                            .fill(v >= 0 ? Players.color(v, .connect4) : Color(hex: 0xF4F4F5))
                             .overlay(Circle().strokeBorder(board.winLine.contains(r * 7 + c) ? .white : .clear, lineWidth: 2.5))
-                            .overlay {
-                                if v >= 0 { Text("♥").font(.system(size: 11, weight: .bold)).foregroundStyle(.white.opacity(0.85)) }
-                            }
                             .frame(width: 28, height: 28)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
@@ -381,8 +404,7 @@ private struct ConnectFourBoard: View {
             }
         }
         .padding(6)
-        .background(Color(hex: 0xA9C9EC), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.5), lineWidth: 1))
+        .background(Color(hex: 0x2563EB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -396,7 +418,7 @@ private struct MemoryBoard: View {
         let cols = Array(repeating: GridItem(.fixed(54), spacing: 7), count: 4)
         LazyVGrid(columns: cols, spacing: 7) {
             ForEach(0..<16, id: \.self) { i in
-                MemoryCard(face: Board.memoryFaces[board.faces[i]],
+                MemoryCard(face: board.faces[i],
                            up: board.flipped.contains(i) || board.owner[i] >= 0,
                            owner: board.owner[i])
                     .onTapGesture { games.flipCard(i) }
@@ -407,21 +429,22 @@ private struct MemoryBoard: View {
 }
 
 private struct MemoryCard: View {
-    let face: String
+    let face: Int
     let up: Bool
     let owner: Int
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color(hex: 0xFBF6EE))
+                .fill(Color(hex: 0xFAFAFA))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .strokeBorder(owner >= 0 ? Players.color[owner] : .black.opacity(0.06), lineWidth: owner >= 0 ? 2 : 1))
-                .overlay(Text(face).font(.system(size: 26)))
+                .overlay(Image(systemName: Board.memoryFaces[face]).font(.system(size: 24))
+                    .foregroundStyle(Color(hex: Board.memoryColors[face])))
                 .opacity(up ? 1 : 0)
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: 0xF6B8CF), Color(hex: 0xEE8FB4)], startPoint: .top, endPoint: .bottom))
-                .overlay(Text("♡").font(.system(size: 20, weight: .bold)).foregroundStyle(.white.opacity(0.9)))
+                .fill(LinearGradient(colors: [Color(hex: 0x475569), Color(hex: 0x334155)], startPoint: .top, endPoint: .bottom))
+                .overlay(Image(systemName: "questionmark").font(.system(size: 18, weight: .bold)).foregroundStyle(.white.opacity(0.55)).scaleEffect(x: -1))
                 .opacity(up ? 0 : 1)
         }
         .frame(width: 54, height: 54)
@@ -444,12 +467,12 @@ private struct RPSBoard: View {
                 // The round that was just revealed.
                 HStack(spacing: 14) {
                     hand(board.lastPicks[games.myIndex], won: board.lastWinner == games.myIndex)
-                    Text("vs").font(Theme.marker(18)).foregroundStyle(Theme.ink2)
+                    Text("vs").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.ink2)
                     hand(board.lastPicks[games.theirIndex], won: board.lastWinner == games.theirIndex)
                 }
                 .id(board.round)
                 .transition(.scale(scale: 0.5).combined(with: .opacity))
-                Text(board.lastWinner == 2 ? "Same! 🤝" : board.lastWinner == games.myIndex ? "You got that one" : "\(games.partnerFirst) got that one")
+                Text(board.lastWinner == 2 ? "Draw" : board.lastWinner == games.myIndex ? "You got that one" : "\(games.partnerFirst) got that one")
                     .font(Theme.sans(11)).foregroundStyle(Theme.ink2)
             }
             if board.result == nil {
@@ -460,10 +483,11 @@ private struct RPSBoard: View {
                             Button { games.pickHand(h) } label: {
                                 VStack(spacing: 2) {
                                     Text(Board.rpsHands[h]).font(.system(size: 30))
-                                    Text(Board.rpsNames[h]).font(Theme.sans(9.5, .medium)).foregroundStyle(Ink.soft)
+                                    Text(Board.rpsNames[h]).font(Theme.sans(9.5, .medium)).foregroundStyle(Theme.ink2)
                                 }
                                 .frame(width: 70, height: 66)
-                                .background(GameKind.rps.tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .background(Theme.glass2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
                             }
                             .buttonStyle(HandButtonStyle())
                         }
@@ -471,11 +495,11 @@ private struct RPSBoard: View {
                 } else {
                     VStack(spacing: 4) {
                         Text("You picked \(Board.rpsHands[mine])").font(Theme.sans(12, .medium))
-                        if board.picks[games.theirIndex] < 0 { BouncingHearts() }
+                        if board.picks[games.theirIndex] < 0 { BouncingDots() }
                     }
                 }
                 if mine < 0, board.picks[games.theirIndex] >= 0 {
-                    Text("\(games.partnerFirst) has picked 🤫").font(Theme.sans(11)).foregroundStyle(Theme.ink2)
+                    Text("\(games.partnerFirst) has picked").font(Theme.sans(11)).foregroundStyle(Theme.ink2)
                 }
             }
         }
@@ -484,8 +508,8 @@ private struct RPSBoard: View {
     private func hand(_ h: Int, won: Bool) -> some View {
         Text(h >= 0 ? Board.rpsHands[h] : "❔").font(.system(size: 38))
             .frame(width: 64, height: 64)
-            .background(won ? Players.soft[0] : Theme.glass2, in: Circle())
-            .overlay(Circle().strokeBorder(won ? Players.color[0] : .clear, lineWidth: 2))
+            .background(Theme.glass2, in: Circle())
+            .overlay(Circle().strokeBorder(won ? Color(hex: 0x16A34A) : .clear, lineWidth: 2.5))
     }
 }
 
@@ -513,7 +537,8 @@ private struct DotsBoard: View {
                 if board.boxes[b] >= 0 {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Players.soft[board.boxes[b]])
-                        .overlay(Text(Players.token[board.boxes[b]]).font(.system(size: 22)))
+                        .overlay(Text(board.boxes[b] == games.myIndex ? "You" : String(games.partnerFirst.prefix(1)))
+                            .font(Theme.sans(13, .bold)).foregroundStyle(Players.color[board.boxes[b]]))
                         .frame(width: cell - 8, height: cell - 8)
                         .position(x: margin + CGFloat(b % 3) * cell + cell / 2, y: margin + CGFloat(b / 3) * cell + cell / 2)
                         .transition(.scale.combined(with: .opacity))
@@ -530,14 +555,14 @@ private struct DotsBoard: View {
             }
             // Dots on top.
             ForEach(0..<16, id: \.self) { d in
-                Circle().fill(Ink.main)
+                Circle().fill(Color(hex: 0x3F3F46))
                     .frame(width: 8, height: 8)
                     .position(x: margin + CGFloat(d % 4) * cell, y: margin + CGFloat(d / 4) * cell)
                     .allowsHitTesting(false)
             }
         }
         .frame(width: size, height: size)
-        .background(Color(hex: 0xF7EFE3), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color(hex: 0xF4F4F5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     /// Tap area for a line, a little fatter than the line itself.
@@ -563,7 +588,7 @@ private struct LineSlot: View {
         ZStack {
             Color.white.opacity(0.001)
             Capsule()
-                .fill(owner >= 0 ? Players.color[owner] : (hovering && canPlay ? Ink.soft.opacity(0.6) : Ink.soft.opacity(0.18)))
+                .fill(owner >= 0 ? Players.color[owner] : (hovering && canPlay ? Color.gray.opacity(0.6) : Color.gray.opacity(0.2)))
                 .frame(width: across ? nil : 5, height: across ? 5 : nil)
         }
         .contentShape(Rectangle())
@@ -574,19 +599,19 @@ private struct LineSlot: View {
 
 // MARK: - Tab
 
-/// On the top tab: a game pad hopping about, with a red badge, when there's a ping or it's my go.
+/// On the top tab: a game pad hopping about, with a red badge, when there's an invite or it's my go.
 struct JumpingGamePad: View {
     let invite: Bool
 
     var body: some View {
         PhaseAnimator([0.0, -7.0, 0.0, -3.0, 0.0, 0.0, 0.0]) { y in
-            Text("🎮").font(.system(size: 22))
+            Image(systemName: "gamecontroller.fill").font(.system(size: 15)).foregroundStyle(Color(hex: 0x3F3F46))
                 .frame(width: 34, height: 26)
-                .background(Players.soft[0], in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Color(hex: 0xF4F4F5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .rotationEffect(.degrees(y * -0.9))
                 .offset(y: y)
                 .overlay(alignment: .topTrailing) {
-                    Text(invite ? "!" : "♥")
+                    Text(invite ? "!" : "1")
                         .font(Theme.sans(9, .semibold))
                         .foregroundStyle(.white)
                         .frame(minWidth: 15, minHeight: 15)
