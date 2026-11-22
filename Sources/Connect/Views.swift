@@ -300,10 +300,16 @@ struct NoteCardRow: View {
             } else {
                 Text(note.text.isEmpty ? "a little drawing ✏️" : note.text).font(Theme.sans(12.5)).lineLimit(2)
             }
-            if !thread.replies.isEmpty {
-                Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
-                      systemImage: "arrowshape.turn.up.left")
-                    .font(Theme.sans(9.5)).foregroundStyle(letter ? Ink.soft : Theme.ink2)
+            let reacted = store.reactions(on: note.id).map(\.emoji).joined()
+            if !thread.replies.isEmpty || !reacted.isEmpty {
+                HStack(spacing: 8) {
+                    if !thread.replies.isEmpty {
+                        Label("\(thread.replies.count) \(thread.replies.count == 1 ? "reply" : "replies")",
+                              systemImage: "arrowshape.turn.up.left")
+                            .font(Theme.sans(9.5)).foregroundStyle(letter ? Ink.soft : Theme.ink2)
+                    }
+                    if !reacted.isEmpty { Text(reacted).font(.system(size: 11)) }
+                }
             }
         }
         .padding(.horizontal, 11).padding(.vertical, 8)
@@ -339,6 +345,7 @@ struct ThreadView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         NoteCard(note: thread.root, large: true)
+                        ReactionBar(note: thread.root)
                         if !thread.replies.isEmpty {
                             HStack(spacing: 6) {
                                 Rectangle().fill(Theme.line).frame(width: 2, height: 10)
@@ -346,8 +353,12 @@ struct ThreadView: View {
                             }
                             .padding(.leading, 8)
                             ForEach(thread.replies) { reply in
-                                NoteCard(note: reply, large: false).id(reply.id)
-                                    .padding(.leading, 10)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    NoteCard(note: reply, large: false)
+                                    ReactionBar(note: reply)
+                                }
+                                .id(reply.id)
+                                .padding(.leading, 10)
                             }
                         }
                         if let mine = thread.all.last(where: { store.isMine($0) }), mine.readAt != nil {

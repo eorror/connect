@@ -7,6 +7,8 @@ final class NotesStore: ObservableObject {
     let auth: AuthManager
 
     @Published private(set) var notes: [Note] = []
+    /// Reaction rows, kept apart so they never show up as letters or replies.
+    @Published private(set) var reactionRows: [Note] = []
     @Published var selectedThreadID: UUID?
     /// A just-arrived letter whose envelope should play opening when it's shown.
     @Published var envelopeToOpen: UUID?
@@ -40,6 +42,7 @@ final class NotesStore: ObservableObject {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.notes = []
+                self.reactionRows = []
                 self.alerted = []
                 self.selectedThreadID = nil
                 Task { await self.refresh() }
@@ -121,6 +124,7 @@ final class NotesStore: ObservableObject {
         UserDefaults.standard.set(e, forKey: "partnerEmail")
         partnerEmail = e
         notes = []
+        reactionRows = []
         alerted = []
         selectedThreadID = nil
         Task { await refresh() }
@@ -155,9 +159,12 @@ final class NotesStore: ObservableObject {
         defer { refreshing = false }
         let me = myEmail, partner = partnerEmail
         do {
-            let fetched = try await withAPI { try await $0.fetchNotes(me: me, partner: partner) }
+            let all = try await withAPI { try await $0.fetchNotes(me: me, partner: partner) }
             guard me == myEmail, partner == partnerEmail else { return }   // account changed mid-request
+            let fetched = all.filter { $0.reaction == nil }
+            let reacts = all.filter { $0.reaction != nil }
             if fetched != notes { notes = fetched }
+            if reacts != reactionRows { reactionRows = reacts }
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -198,6 +205,40 @@ final class NotesStore: ObservableObject {
         lastError = nil
         Task { await refresh() }
         return true
+    }
+
+    // MARK: Reactions
+
+    /// Each person's current reaction on a note (newest wins; an empty one was taken back).
+    func reactions(on noteID: UUID) -> [(email: String, emoji: String)] {
+        var latest: [String: String] = [:]
+        for row in reactionRows {
+            guard let r = row.reaction, r.noteID == noteID else { continue }
+            latest[row.senderEmail] = r.emoji
+        }
+        return latest.filter { !$0.value.isEmpty }
+            .map { (email: $0.key, emoji: $0.value) }
+            .sorted { $0.email == myEmail ? false : $1.email == myEmail }
+    }
+
+    /// Sets (or, with an empty emoji, takes back) my reaction on a note.
+    func react(to note: Note, with emoji: String) {
+        guard isConfigured else { return }
+        let new = NewNote(id: UUID(), senderEmail: myEmail, senderName: myName, recipientEmail: partnerEmail,
+                          body: Reaction.token(for: note.id, emoji: emoji), replyTo: note.threadID)
+        // Show it straight away; roll back if the server says no.
+        let local = Note(id: new.id, createdAt: Date(), senderEmail: new.senderEmail, senderName: new.senderName,
+                         recipientEmail: new.recipientEmail, body: new.body, replyTo: new.replyTo, readAt: nil)
+        reactionRows.append(local)
+        Task {
+            do {
+                try await withAPI { try await $0.insert(new) }
+                lastError = nil
+            } catch {
+                reactionRows.removeAll { $0.id == new.id }
+                lastError = error.localizedDescription
+            }
+        }
     }
 
     func markThreadRead(_ threadID: UUID) {
